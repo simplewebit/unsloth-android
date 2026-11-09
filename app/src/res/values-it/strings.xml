@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="server_title">Server Unsloth</string>
+    <string name="host_hint">ip o indirizzo ddns</string>
+    <string name="port_hint">Porta</string>
+    <string name="connect">Salva e connetti</string>
+    <string name="retry">Riprova</string>
+    <string name="refresh">Aggiorna</string>
+    <string name="settings">Impostazioni</string>
+    <string name="show_log">Mostra log</string>
+
+    <!-- Drawer -->
+    <string name="home">Home</string>
+    <string name="home_desc">Torna alla pagina iniziale</string>
+    <string name="chat">Torna alla chat</string>
+    <string name="chat_desc">Ultima chat attiva</string>
+    <string name="options">Opzioni</string>
+    <string name="options_desc">Collegamento e schermo</string>
+    <string name="log">Log</string>
+    <string name="log_desc">Log di debug dell\'app</string>
+    <string name="menu_cd">Menu</string>
+    <string name="reload_cd">Ricarica</string>
+    <string name="credits">Credits</string>
+    <string name="credits_desc">Informazioni sull\'app</string>
+
+    <!-- Credits panel -->
+    <string name="not_official">Non è un\'app ufficiale di Unsloth.\nSi basa su Unsloth Studio.</string>
+    <string name="developer_name">Mattia Di Giuseppe</string>
+    <string name="developer_email">mattia.digiuseppe@simpleweb.it</string>
+    <string name="website">https://www.simpleweb.it</string>
+
+    <!-- Options panel -->
+    <string name="options_title">Opzioni</string>
+    <string name="section_connection">Collegamento</string>
+    <string name="section_screen">Schermo</string>
+    <string name="section_language">Lingua</string>
+    <string name="screen_always_on">Schermo sempre acceso</string>
+    <string name="screen_always_on_desc">Mantiene lo schermo acceso mentre l\'app è in primo piano</string>
+    <string name="log_enabled">Log</string>
+    <string name="log_enabled_desc">Scrive il log di debug in crash.log</string>
+    <string name="developer_info">Sviluppatore: Mattia Di Giuseppe\nmattia.digiuseppe@simpleweb.it</string>
+
+    <!-- Log panel -->
+    <string name="download_log">Scarica log</string>
+    <string name="no_log_yet">Nessun log ancora.</string>
+
+    <!-- Misc UI -->
+    <string name="version_label">Versione </string>
+    <string name="error_cannot_reach">Non riesco a raggiungere %1$s\n\n%2$s</string>
+    <string name="download_started">Download in corso: %1$s</string>
+    <string name="download_done">Scaricato: %1$s</string>
+    <string name="download_error">Errore download: %1$s</string>
+    <string name="download_already">Un download è già in corso</string>
+    <string name="write_error">Errore di scrittura: %1$s</string>
+    <string name="write_error_bare">Errore di scrittura</string>
+    <string name="download_interrupted">Download interrotto</string>
+    <string name="download_in_progress_notif">Download in corso</string>
+    <string name="download_done_notif">Download completato</string>
+    <string name="downloads_channel">Downloads</string>
+    <string name="downloads_channel_desc">Notifiche di download da Unsloth</string>
+    <string name="crash_toast">Crash! Log in crash.log</string>
+
+    <!-- Notifications -->
+    <string name="notif_ready_title">Unsloth: risposta pronta</string>
+    <string name="notif_ready_text_default">La generazione è finita, apri l\'app per leggerla</string>
+    <string name="notif_ready_suffix"> - la generazione è finita</string>
+    <string name="notif_gen_title">Unsloth: generazione in corso</string>
+    <string name="notif_gen_text_default">L\'app mantiene la generazione attiva in background</string>
+    <string name="notif_gen_suffix"> - generazione in corso</string>
+    <string name="channel_gen">Generazione</string>
+    <string name="channel_gen_desc">Mantiene la generazione attiva in background</string>
+    <string name="channel_done">Risposta pronta</string>
+    <string name="channel_done_desc">Notifica quando una generazione è finita</string>
+    <string name="keepalive_text">Rinnovo della sessione in corso</string>
+
+    <string-array name="lang_options">
+        <item>Automatica</item>
+        <item>Italiano</item>
+        <item>Inglese</item>
+    </string-array>
+</resources>

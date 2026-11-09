@@ -1,0 +1,31 @@
+# Credenziali e dati privati: mai nel repo
+secret_tmp/
+
+# Keystore di firma: privato, build.sh lo genera se assente
+unsloth.keystore
+
+# Output di build
+out/
+
+# Toolchain di build (binari JDK/SDK)
+tools/
+
+# Cartelle di scarto dentro libs
+libs/Microsoft/
+
+# Log
+*.log
+
+# Cartelle di lavoro e documenti interni
+2026-*/
+STATO-LAVORO.md
+NOTE.md
+NOTE-KEEPALIVE.md
+REPORT-AB.md
+start_server.bat
+start_server.ps1
+*.bak*
+
+# OS / editor
+Thumbs.db
+.DS_Store

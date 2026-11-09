@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Unsloth</string>
+    <string name="server_title">Unsloth Server</string>
+    <string name="host_hint">IP or DDNS address</string>
+    <string name="port_hint">Port</string>
+    <string name="connect">Save and connect</string>
+    <string name="retry">Retry</string>
+    <string name="refresh">Refresh</string>
+    <string name="settings">Settings</string>
+    <string name="show_log">Show log</string>
+
+    <!-- Drawer -->
+    <string name="home">Home</string>
+    <string name="home_desc">Back to the start page</string>
+    <string name="chat">Back to chat</string>
+    <string name="chat_desc">Last active chat</string>
+    <string name="options">Options</string>
+    <string name="options_desc">Connection and screen</string>
+    <string name="log">Log</string>
+    <string name="log_desc">App debug log</string>
+    <string name="menu_cd">Menu</string>
+    <string name="reload_cd">Reload</string>
+    <string name="credits">Credits</string>
+    <string name="credits_desc">About this app</string>
+
+    <!-- Credits panel -->
+    <string name="not_official">Not an official Unsloth app.\nBased on Unsloth Studio.</string>
+    <string name="developer_name">Mattia Di Giuseppe</string>
+    <string name="developer_email">mattia.digiuseppe@simpleweb.it</string>
+    <string name="website">https://www.simpleweb.it</string>
+
+    <!-- Options panel -->
+    <string name="options_title">Options</string>
+    <string name="section_connection">Connection</string>
+    <string name="section_screen">Screen</string>
+    <string name="section_language">Language</string>
+    <string name="screen_always_on">Always keep screen on</string>
+    <string name="screen_always_on_desc">Keeps the screen on while the app is in the foreground</string>
+    <string name="log_enabled">Log</string>
+    <string name="log_enabled_desc">Writes the debug log to crash.log</string>
+    <string name="developer_info">Developer: Mattia Di Giuseppe\nmattia.digiuseppe@simpleweb.it</string>
+
+    <!-- Log panel -->
+    <string name="download_log">Download log</string>
+    <string name="no_log_yet">No log yet.</string>
+
+    <!-- Misc UI -->
+    <string name="version_label">Version </string>
+    <string name="error_cannot_reach">Cannot reach %1$s\n\n%2$s</string>
+    <string name="download_started">Download in progress: %1$s</string>
+    <string name="download_done">Downloaded: %1$s</string>
+    <string name="download_error">Download error: %1$s</string>
+    <string name="download_already">A download is already in progress</string>
+    <string name="write_error">Write error: %1$s</string>
+    <string name="write_error_bare">Write error</string>
+    <string name="download_interrupted">Download interrupted</string>
+    <string name="download_in_progress_notif">Download in progress</string>
+    <string name="download_done_notif">Download complete</string>
+    <string name="downloads_channel">Downloads</string>
+    <string name="downloads_channel_desc">Unsloth download notifications</string>
+    <string name="crash_toast">Crash! Log in crash.log</string>
+
+    <!-- Notifications -->
+    <string name="notif_ready_title">Unsloth: reply ready</string>
+    <string name="notif_ready_text_default">Generation finished, open the app to read it</string>
+    <string name="notif_ready_suffix"> - generation finished</string>
+    <string name="notif_gen_title">Unsloth: generation in progress</string>
+    <string name="notif_gen_text_default">The app keeps the generation active in the background</string>
+    <string name="notif_gen_suffix"> - generation in progress</string>
+    <string name="channel_gen">Generation</string>
+    <string name="channel_gen_desc">Keeps the generation active in the background</string>
+    <string name="channel_done">Reply ready</string>
+    <string name="channel_done_desc">Notification when a generation is finished</string>
+    <string name="keepalive_text">Session renewal in progress</string>
+
+    <string-array name="lang_options">
+        <item>Auto</item>
+        <item>Italian</item>
+        <item>English</item>
+    </string-array>
+</resources>
