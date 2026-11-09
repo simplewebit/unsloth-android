@@ -312,25 +312,9 @@
                 android:paddingTop="24dp">
 
                 <ImageView
-                    android:layout_width="96dp"
-                    android:layout_height="96dp"
-                    android:src="@drawable/unsloth_logo"
-                    android:contentDescription="@string/not_official"/>
-
-                <TextView
-                    android:layout_width="match_parent"
+                    android:layout_width="320dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:gravity="center"
-                    android:paddingStart="24dp"
-                    android:paddingEnd="24dp"
-                    android:text="@string/not_official"
-                    android:textSize="14sp"/>
-
-                <ImageView
-                    android:layout_width="160dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="32dp"
+                    android:adjustViewBounds="true"
                     android:src="@drawable/simpleweb_logo"
                     android:contentDescription="@string/website"/>
 
@@ -347,19 +331,27 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:autoLink="email"
+                    android:autoLink="all"
                     android:gravity="center"
-                    android:text="@string/developer_email"
+                    android:text="@string/developer_contact"
                     android:textSize="14sp"/>
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:autoLink="web"
+                    android:layout_marginTop="16dp"
                     android:gravity="center"
-                    android:text="@string/website"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:text="@string/not_official"
                     android:textSize="14sp"/>
+
+                <ImageView
+                    android:layout_width="96dp"
+                    android:layout_height="96dp"
+                    android:layout_marginTop="24dp"
+                    android:src="@drawable/unsloth_logo"
+                    android:contentDescription="@string/not_official"/>
             </LinearLayout>
         </ScrollView>
 

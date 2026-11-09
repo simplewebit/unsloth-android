@@ -27,7 +27,7 @@
     <!-- Credits panel -->
     <string name="not_official">Not an official Unsloth app.\nBased on Unsloth Studio.</string>
     <string name="developer_name">Mattia Di Giuseppe</string>
-    <string name="developer_email">mattia.digiuseppe@simpleweb.it</string>
+    <string name="developer_contact">www.simpleweb.it - mattia.digiuseppe@simpleweb.it</string>
     <string name="website">https://www.simpleweb.it</string>
 
     <!-- Options panel -->
