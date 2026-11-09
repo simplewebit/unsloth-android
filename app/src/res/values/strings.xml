@@ -46,7 +46,6 @@
     <string name="no_log_yet">No log yet.</string>
 
     <!-- Misc UI -->
-    <string name="version_label">Version </string>
     <string name="error_cannot_reach">Cannot reach %1$s\n\n%2$s</string>
     <string name="download_started">Download in progress: %1$s</string>
     <string name="download_done">Downloaded: %1$s</string>

@@ -372,7 +372,7 @@ public class MainActivity extends Activity {
             creditsPanel = findViewById(R.id.credits_panel);
             logText = findViewById(R.id.log_text);
             gestureStrip = findViewById(R.id.gesture_strip);
-            ((TextView) findViewById(R.id.tv_version)).setText(getString(R.string.version_label) + APP_VERSION);
+            ((TextView) findViewById(R.id.tv_version)).setText("v" + APP_VERSION);
             App.log("MainActivity.onCreate: view trovati (versione " + APP_VERSION + ")");
 
 

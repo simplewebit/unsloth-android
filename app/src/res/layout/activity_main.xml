@@ -59,6 +59,19 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"/>
 
+        <!-- Versione in basso a destra: non intercetta i tocchi (passano al webview). -->
+        <TextView
+            android:id="@+id/tv_version"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="8dp"
+            android:clickable="false"
+            android:focusable="false"
+            android:textColor="#9E9E9E"
+            android:textSize="10sp"/>
+
         <ScrollView
             android:id="@+id/options_panel"
             android:layout_width="match_parent"
@@ -352,6 +365,15 @@
                     android:layout_marginTop="24dp"
                     android:src="@drawable/unsloth_logo"
                     android:contentDescription="@string/not_official"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="v1.0"
+                    android:textColor="#555555"
+                    android:textSize="12sp"
+                    android:textStyle="italic"/>
             </LinearLayout>
         </ScrollView>
 
@@ -599,13 +621,5 @@
             </LinearLayout>
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tv_version"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="24dp"
-            android:textColor="#D6F2E5"
-            android:textSize="12sp"/>
     </LinearLayout>
 </androidx.drawerlayout.widget.DrawerLayout>
