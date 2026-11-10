@@ -28,6 +28,16 @@
 - **A debug log you can share** — on/off switch in Options and a one-tap share to attach `crash.log` to an email or a GitHub issue
 - **Bilingual UI** — English and Italian, auto-selected from your system language (selector in Options)
 
+## Screenshots
+
+<p align="center">
+  <img src="screen/main.png" alt="Chat" width="140" /> &nbsp;
+  <img src="screen/drawer.png" alt="Drawer" width="140" /> &nbsp;
+  <img src="screen/options.png" alt="Options" width="140" /> &nbsp;
+  <img src="screen/log.png" alt="Log" width="140" /> &nbsp;
+  <img src="screen/credits.png" alt="Credits" width="140" />
+</p>
+
 ## Install
 
 1. Grab the latest APK from the [releases page](https://github.com/simplewebit/unsloth-android/releases/latest).
