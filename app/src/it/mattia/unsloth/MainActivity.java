@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
     private int mBlobChunkIndex;
     // Numero di versione mostrato nel drawer: incrementato a ogni build,
     // cosi Mattia sa sempre in quale versione è.
-    static final String APP_VERSION = "1.5";
+    static final String APP_VERSION = "1.6";
 
     private int mBlobChunkCount;
     private OutputStream mBlobOut;
@@ -763,7 +763,25 @@ public class MainActivity extends Activity {
         logPanel.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
         updateBar();
-        webView.loadUrl(url);
+        // Avvio: se c'e' l'ultimo thread visitato, apri direttamente la sua
+        // chat (una sola navigazione), cosi al riavvio l'app "resta ferma"
+        // dove l'avevi lasciata invece di ripartire dalla pagina base.
+        webView.loadUrl(startupUrl());
+    }
+
+    // URL di avvio: ultimo thread visitato (prefs last_thread) se c'e',
+    // altrimenti la pagina base.
+    private String startupUrl() {
+        if (currentUrl == null) return null;
+        if (mLastThread != null && !mLastThread.isEmpty()) {
+            try {
+                return currentUrl + "/chat?thread="
+                        + java.net.URLEncoder.encode(mLastThread, "UTF-8");
+            } catch (Exception e) {
+                return currentUrl + "/chat?thread=" + mLastThread;
+            }
+        }
+        return currentUrl;
     }
 
     // All'avvio: verifica che il token di auth sia vivo. Se scade lo rinnova
@@ -896,9 +914,26 @@ public class MainActivity extends Activity {
                     if (ts > bestTs) { bestTs = ts; bestId = id; }
                 }
                 if (bestId == null) { App.log("LIVE-THREAD: nessun thread valido"); return; }
-                // Arrivato dal tap sulla notifica: apre il thread target
-                // (extra "threadId") al posto del piu' recente.
+                // Priorita' del target: ultimo thread visitato dal telefono
+                // (prefs last_thread) al posto del piu' recentemente
+                // aggiornato, cosi l'app riapre dove l'avevi lasciata. Se quel
+                // thread non e' piu' in lista (cancellato), resta il recente.
                 String targetId = bestId;
+                if (mLastThread != null && !mLastThread.isEmpty()) {
+                    boolean foundLast = false;
+                    for (int i = 0; i < arr.length(); i++) {
+                        org.json.JSONObject t2 = arr.optJSONObject(i);
+                        if (t2 != null && mLastThread.equals(t2.optString("id"))) { foundLast = true; break; }
+                    }
+                    if (foundLast) {
+                        targetId = mLastThread;
+                        App.log("LIVE-THREAD: uso l'ultimo thread visitato " + targetId);
+                    } else {
+                        App.log("LIVE-THREAD: ultimo thread non in lista, uso il piu' recente");
+                    }
+                }
+                // Arrivato dal tap sulla notifica: apre il thread target
+                // (extra "threadId") al posto di tutto il resto.
                 if (mTargetThreadId != null && !mTargetThreadId.isEmpty()) {
                     boolean found = false;
                     for (int i = 0; i < arr.length(); i++) {
@@ -1016,7 +1051,9 @@ public class MainActivity extends Activity {
         mAutoOpenPending = true;
         webView.clearCache(true);
         App.log("AUTH-HEAL: token scritto, ricarico la pagina");
-        webView.loadUrl(currentUrl);
+        // Stesso URL di avvio: dopo il refresh torno alla chat che stavo
+        // usando, non alla pagina base.
+        webView.loadUrl(startupUrl());
     }
 
     // Refresh fallito (sessione morta): svuoto localStorage e IndexedDB della
