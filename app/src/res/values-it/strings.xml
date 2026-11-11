@@ -8,6 +8,8 @@
     <string name="refresh">Aggiorna</string>
     <string name="settings">Impostazioni</string>
     <string name="show_log">Mostra log</string>
+    <string name="gen_main">Risposta in generazione…</string>
+    <string name="gen_wait">Attendi</string>
 
     <!-- Drawer -->
     <string name="home">Home</string>

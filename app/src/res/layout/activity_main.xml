@@ -72,6 +72,7 @@
             android:textColor="#9E9E9E"
             android:textSize="10sp"/>
 
+
         <ScrollView
             android:id="@+id/options_panel"
             android:layout_width="match_parent"
@@ -370,7 +371,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="v1.0"
+                    android:text="1.5"
                     android:textColor="#555555"
                     android:textSize="12sp"
                     android:textStyle="italic"/>

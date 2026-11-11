@@ -149,6 +149,25 @@ public class MainActivity extends Activity {
     // all'avvio openLiveThread lo apre al posto del thread piu' recente.
     private volatile String mTargetThreadId = "";
 
+    // v1.5: rilevazione cross-client dei run. Mentre l'app e' su una pagina
+    // chat fa polling di /chat-runs/active?threadId=X (account-level): se nel
+    // thread corrente c'e' un run attivo - anche partito da un altro client -
+    // mostra il banner "elaborazione in corso", blocca l'invio e a runs vuoto
+    // ri-sincronizza la chat dal server.
+    private static final long RUN_POLL_MS = 3000;
+    private volatile boolean mPollRunning = false;
+    private volatile boolean mRunActive = false;
+    private volatile String mSawActiveThread = "";
+    private volatile long mLastAuthRefreshMs = 0;
+    // URL della pagina WebView, aggiornata solo sui callback main-thread
+    // (onPageStarted/Finished/CommitVisible e reportUrl). I thread di
+    // background (run-poll, checkGenStatusAndResync) la leggono invece di
+    // chiamare webView.getUrl(), che fuori dal thread UI lancia un'eccezione
+    // (violation StrictMode WebViewMethodCalledOnWrongThread).
+    private volatile String mPageUrl = "";
+    private Thread mRunPollThread;
+    private Button mBtnRetry;
+
     // Download blob: un solo job alla volta, chunk base64 dal WebView
     private static final int BLOB_CHUNK = 2 * 1024 * 1024;
     private String mBlobName;
@@ -158,7 +177,7 @@ public class MainActivity extends Activity {
     private int mBlobChunkIndex;
     // Numero di versione mostrato nel drawer: incrementato a ogni build,
     // cosi Mattia sa sempre in quale versione è.
-    static final String APP_VERSION = "1.0";
+    static final String APP_VERSION = "1.5";
 
     private int mBlobChunkCount;
     private OutputStream mBlobOut;
@@ -372,7 +391,7 @@ public class MainActivity extends Activity {
             creditsPanel = findViewById(R.id.credits_panel);
             logText = findViewById(R.id.log_text);
             gestureStrip = findViewById(R.id.gesture_strip);
-            ((TextView) findViewById(R.id.tv_version)).setText("v" + APP_VERSION);
+            ((TextView) findViewById(R.id.tv_version)).setText(APP_VERSION);
             App.log("MainActivity.onCreate: view trovati (versione " + APP_VERSION + ")");
 
 
@@ -517,15 +536,25 @@ public class MainActivity extends Activity {
 
         Button btnConnect = findViewById(R.id.btn_connect);
         btnConnect.setOnClickListener(v -> connectFromSettings());
-        Button btnRetry = findViewById(R.id.btn_retry);
-        btnRetry.setOnClickListener(v -> {
-            if (currentUrl == null) return;
-            mErrorActive = false;
-            errorPanel.setVisibility(View.GONE);
-            logPanel.setVisibility(View.GONE);
-            webView.setVisibility(View.VISIBLE);
-            updateBar();
-            webView.loadUrl(currentUrl);
+        mBtnRetry = (Button) findViewById(R.id.btn_retry);
+        mBtnRetry.setOnClickListener(v -> {
+            // Riprova usa l'indirizzo scritto nel campo Opzioni, se c'è uno
+            // valido: cosi un indirizzo appena modificato (ma non ancora con
+            // "Salva e connetti") viene provato al posto dell'ultimo.
+            String h = editHost.getText().toString().trim();
+            String p = editPort.getText().toString().trim();
+            if (p.isEmpty()) p = "8888";
+            if (!h.isEmpty() && p.matches("[0-9]+")
+                    && Integer.parseInt(p) >= 1 && Integer.parseInt(p) <= 65535) {
+                saveAndConnect(h, p);
+            } else if (currentUrl != null) {
+                mErrorActive = false;
+                errorPanel.setVisibility(View.GONE);
+                logPanel.setVisibility(View.GONE);
+                webView.setVisibility(View.VISIBLE);
+                updateBar();
+                webView.loadUrl(currentUrl);
+            }
         });
 
         // Barra che si nasconde quando scorri la pagina verso il basso
@@ -619,12 +648,15 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                mPageUrl = url;
                 injectBlobInterceptor();
                 injectUrlReporter();
+                injectComposerGuard();
             }
 
             @Override
             public void onPageCommitVisible(WebView view, String url) {
+                mPageUrl = url;
                 App.log("onPageCommitVisible: " + url);
                 mScrollY = 0;
                 if (!mErrorActive) {
@@ -635,6 +667,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                mPageUrl = url;
                 syncTokensFromPage();
                 if (mAutoOpenPending && url != null && !url.contains("/login")) {
                     mAutoOpenPending = false;
@@ -1092,6 +1125,7 @@ public class MainActivity extends Activity {
         mErrorActive = true;
         webView.setVisibility(View.GONE);
         creditsPanel.setVisibility(View.GONE);
+        optionsPanel.setVisibility(View.GONE);
         logPanel.setVisibility(View.GONE);
         errorPanel.setVisibility(View.VISIBLE);
         updateBar();
@@ -1166,6 +1200,7 @@ public class MainActivity extends Activity {
                 checkGenStatusAndResync();
             }
         }
+        startRunPolling();
         scheduleKeepAlive();
     }
 
@@ -1284,9 +1319,11 @@ public class MainActivity extends Activity {
     }
 
     private String currentThreadId() {
+        // mPageUrl (cache main-thread): chiamare webView.getUrl() da un
+        // thread di background lancia un'eccezione su alcuni Android.
         try {
-            String url = webView.getUrl();
-            if (url != null) {
+            String url = mPageUrl;
+            if (url != null && !url.isEmpty()) {
                 Uri u = Uri.parse(url);
                 String t = u.getQueryParameter("thread");
                 if (t != null && !t.isEmpty()) return t;
@@ -1396,6 +1433,326 @@ public class MainActivity extends Activity {
                 "}}).catch(function(e){finish(false);});" +
                 "})();";
         webView.evaluateJavascript(js, null);
+    }
+
+    // v1.5: polling nativo di /chat-runs/active?threadId=X (stesso endpoint e
+    // stesso stile di checkGenStatusAndResync, ma continuo). Rileva i run del
+    // thread corrente partiti da un ALTRO client: mostra il banner, blocca
+    // l'invio e a runs vuoto ri-sincronizza la chat. I run avviati da questo
+    // telefono (isRecentGen) non vengono bloccati: il UI di Studio li mostra
+    // gia' in corso e l'input resta libero (coda messaggi come al solito).
+    private void startRunPolling() {
+        if (mPollRunning) return;
+        mPollRunning = true;
+        mRunPollThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (mPollRunning) {
+                    try {
+                        pollActiveRuns();
+                    } catch (Exception e) {
+                        App.log("RUN-POLL errore: " + e.getMessage());
+                    }
+                    try {
+                        Thread.sleep(RUN_POLL_MS);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+            }
+        }, "run-poll");
+        mRunPollThread.start();
+    }
+
+    private void stopRunPolling() {
+        mPollRunning = false;
+        if (mRunPollThread != null) mRunPollThread.interrupt();
+    }
+
+    private void pollActiveRuns() {
+        // mPageUrl, non webView.getUrl(): questo gira su un thread di
+        // background e gli accessi WebView fuori dal thread UI lancia.
+        String url = mPageUrl;
+        if (url == null || !url.contains("chat")) return;
+        final String tid = currentThreadId();
+        if (tid.isEmpty()) return;
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String host = p.getString("host", "");
+        String port = p.getString("port", "8888");
+        String tok = p.getString("auth_access", "");
+        if (host.isEmpty() || tok.isEmpty()) return;
+        String base = (host.startsWith("http://") || host.startsWith("https://"))
+                ? host + (port.isEmpty() ? "" : ":" + port)
+                : "http://" + host + ":" + port;
+        java.net.HttpURLConnection c = null;
+        try {
+            java.net.URL u = new java.net.URL(base + "/api/inference/chat-runs/active?threadId="
+                    + java.net.URLEncoder.encode(tid, "UTF-8"));
+            c = (java.net.HttpURLConnection) u.openConnection();
+            c.setRequestProperty("Authorization", "Bearer " + tok);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(20000);
+            int code = c.getResponseCode();
+            if (code == 401) {
+                // Token scaduto: rinnovo (max una volta al minuto) e salto il giro.
+                if (System.currentTimeMillis() - mLastAuthRefreshMs > 60 * 1000L) {
+                    mLastAuthRefreshMs = System.currentTimeMillis();
+                    refreshAuthTokens(base);
+                }
+                return;
+            }
+            if (code != 200) return;
+            java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(c.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            org.json.JSONObject j = new org.json.JSONObject(sb.toString());
+            org.json.JSONArray runs = j.optJSONArray("runs");
+            final boolean active = runs != null && runs.length() > 0;
+            if (active) {
+                if (isRecentGen()) {
+                    // Run avviato da questo telefono: il UI di Studio lo mostra
+                    // gia' in corso, niente blocco: l'input resta libero e i
+                    // messaggi si mettono in coda come al solito.
+                    if (mRunActive) {
+                        mRunActive = false;
+                        mSawActiveThread = "";
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                setGenBanner(false);
+                                lockComposer(false);
+                            }
+                        });
+                    }
+                } else {
+                    // Run partito da un altro client: banner + blocco invio.
+                    mSawActiveThread = tid;
+                    if (!mRunActive) {
+                        mRunActive = true;
+                        App.log("RUN-POLL: run cross-client attivo nel thread " + tid);
+                    }
+                    // Banner e lock a ogni tick (idempotenti): se la prima
+                    // iniezione fallisce (pagina ancora in caricamento, JS
+                    // null) i tick successivi la ripetono; se Studio
+                    // re-render elimina il div, il tick dopo lo reinietta.
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            setGenBanner(true);
+                            lockComposer(true);
+                        }
+                    });
+                }
+            } else if (mRunActive && !tid.equals(mSawActiveThread)) {
+                // Cambio di thread con un run attivo in un altro: azzero banner
+                // e lock, senza resync (il run non riguarda questa chat).
+                mRunActive = false;
+                mSawActiveThread = "";
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        setGenBanner(false);
+                        lockComposer(false);
+                    }
+                });
+            } else if (mRunActive) {
+                // Run finito nel thread corrente: sblocco e, se il run non era
+                // partito da questa app (quindi Studio non lo ha mai "visto"),
+                // ri-sincronizzo la chat dal server.
+                mRunActive = false;
+                mSawActiveThread = "";
+                App.log("RUN-POLL: run finito, resync");
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        setGenBanner(false);
+                        lockComposer(false);
+                        String u2 = webView.getUrl();
+                        if (u2 != null && u2.contains(tid) && !isRecentGen()) genFinitaResync();
+                    }
+                });
+            }
+        } catch (Exception e) {
+            App.log("RUN-POLL errore: " + e.getMessage());
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    // Rinnova i token nei prefs via /api/auth/refresh (stesso flusso di
+    // GenService): il refresh token e' single-use, quindi salvo quello nuovo.
+    private void refreshAuthTokens(String base) {
+        try {
+            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            String rt = p.getString("auth_refresh", "");
+            if (rt.isEmpty()) return;
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                    new java.net.URL(base + "/api/auth/refresh").openConnection();
+            c.setRequestMethod("POST");
+            c.setRequestProperty("Content-Type", "application/json");
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(20000);
+            c.setDoOutput(true);
+            c.getOutputStream().write(("{\"refresh_token\":\"" + rt + "\"}").getBytes("UTF-8"));
+            if (c.getResponseCode() != 200) {
+                App.log("RUN-POLL: refresh token fallito");
+                return;
+            }
+            java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(c.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            org.json.JSONObject j = new org.json.JSONObject(sb.toString());
+            String at = j.optString("access_token");
+            String nrt = j.optString("refresh_token");
+            if (at.isEmpty()) return;
+            p.edit().putString("auth_access", at).putString("auth_refresh", nrt)
+                    .putLong("auth_synced_ts", System.currentTimeMillis()).apply();
+            App.log("RUN-POLL: token rinnovato");
+        } catch (Exception e) {
+            App.log("RUN-POLL: refresh errore " + e.getMessage());
+        }
+    }
+
+    // Banner "risposta in generazione": iniettato nel DOM di Studio come
+    // figlio del box composer (.unsloth-composer-surface), stabile ai
+    // re-render di Studio durante lo streaming (un antenato piu' alto viene
+    // riconciliato da React e fa sparire il div). Larga uguale alla card
+    // "2 runtime updates" di Studio: larghezza viewport meno 2rem, centrata
+    // sulla viewport dei messaggi (.aui-thread-viewport); se assente, sul
+    // documento. Offset left/right relativi al rect del composer: responsivo
+    // per costruzione, ricalcolato a ogni tick. Copre tutta
+    // l'area input (testo + tasto invio) con gradiente verde e spinner in
+    // rotazione. pointer-events:none: non intercetta i tocchi, la chat resta
+    // visibile e scorribile; il blocco dell'invio lo fa lockComposer via JS.
+    // Essendo nel DOM resta sotto la sidebar di Studio e sotto i pannelli
+    // nativi (drawer, Opzioni, Log, Credits). Re-iniettato a ogni tick del
+    // poller in caso di re-render di Studio.
+    private void setGenBanner(boolean show) {
+        if (mBtnRetry != null) mBtnRetry.setEnabled(!show);
+        try {
+            String js;
+            if (show) {
+                String main = jsEsc(getString(R.string.gen_main));
+                String sub = jsEsc(getString(R.string.gen_wait));
+                js = "(function(){"
+                        + "if(!window.__unslothGenStyle){"
+                        + "var st=document.createElement('style');"
+                        + "st.textContent='#unsloth-gen-banner{position:absolute;z-index:50;"
+                        + "display:flex;align-items:center;justify-content:center;gap:12px;"
+                        + "border-radius:var(--radius-3xl,18px);"
+                        + "background:linear-gradient(180deg,#00C98F,#00A371);"
+                        + "border:1px solid rgba(255,255,255,.28);opacity:0;"
+                        + "transition:opacity .2s ease;pointer-events:none}"
+                        + "#unsloth-gen-banner.on{opacity:1}"
+                        + "@keyframes unslothGenSpin{to{transform:rotate(360deg)}}"
+                        + ".unsloth-gen-spin svg{animation:unslothGenSpin .9s linear infinite}"
+                        + ".unsloth-gen-txt{display:flex;flex-direction:column}"
+                        + ".unsloth-gen-main{color:#fff;font-weight:700;font-size:18px;line-height:1.25}"
+                        + ".unsloth-gen-sub{color:rgba(255,255,255,.85);font-size:13px;margin-top:2px}';"
+                        + "document.head.appendChild(st);window.__unslothGenStyle=true;}"
+                        + "var c=document.querySelector('.unsloth-composer-surface');"
+                        + "if(!c)return 'no-surface';"
+                        + "var cr=c.getBoundingClientRect();"
+                        + "function rr(e){if(!e)return null;"
+                        + "var q=e.getBoundingClientRect();"
+                        + "return Math.round(q.left)+','+Math.round(q.top)+','+Math.round(q.right)+','+Math.round(q.bottom);}"
+                        + "var vp=document.querySelector('.aui-thread-viewport');"
+                        + "var vleft=0,vwidth=0;"
+                        + "if(vp){var vqr=vp.getBoundingClientRect();"
+                        + "vleft=vqr.left;vwidth=vqr.width;}"
+                        + "var rem=parseFloat(getComputedStyle(document.documentElement).fontSize)||16;"
+                        + "var vw=vwidth||document.documentElement.clientWidth||cr.right-cr.left;"
+                        + "var bw=vw-2*rem;"
+                        + "var bl=vwidth>0?vleft+(vwidth-bw)/2:(vw-bw)/2;"
+                        + "var left=bl-cr.left,right=cr.right-(bl+bw);"
+                        + "var old=document.getElementById('unsloth-gen-banner');"
+                        + "if(old&&old.parentNode)old.parentNode.removeChild(old);"
+                        + "var b=document.createElement('div');b.id='unsloth-gen-banner';"
+                        + "b.innerHTML='<div class=\"unsloth-gen-spin\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" fill=\"none\">"
+                        + "<path d=\"M21,12 A9,9 0 1 1 12,3\" stroke=\"#fff\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></svg></div>"
+                        + "<div class=\"unsloth-gen-txt\"><div class=\"unsloth-gen-main\">" + main + "</div>"
+                        + "<div class=\"unsloth-gen-sub\">" + sub + "</div></div>';"
+                        + "b.style.left=left+'px';"
+                        + "b.style.right=right+'px';"
+                        + "b.style.top='0px';"
+                        + "b.style.height='100%';"
+                        + "b.style.opacity='1';"
+                        + "c.appendChild(b);"
+                        + "window.__unslothGenBannerInfo=rr(b)+'|op='+getComputedStyle(b).opacity;"
+                        + "return 'ok|info='+window.__unslothGenBannerInfo+'|c='+rr(c)+'|vp='+rr(vp)+'|rem='+Math.round(rem)+'|bw='+Math.round(bw)+'|lr='+Math.round(left)+','+Math.round(right);"
+                        + "})();";
+            } else {
+                js = "(function(){"
+                        + "var b=document.getElementById('unsloth-gen-banner');"
+                        + "if(!b)return 'none';"
+                        + "b.style.opacity='0';"
+                        + "setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b);},260);"
+                        + "return 'ok';"
+                        + "})();";
+            }
+            webView.evaluateJavascript(js, new ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String value) {
+                    App.log("BANNER js: " + value);
+                }
+            });
+        } catch (Exception e) {
+            App.log("BANNER errore: " + e.getMessage());
+        }
+    }
+
+    // Escape per stringhe JS single-quoted (testi del banner).
+    private static String jsEsc(String s) {
+        return s.replace("\\", "\\\\").replace("'", "\\'");
+    }
+
+    // Blocca il composer dentro la web view: send disabled, editor readonly.
+    // I listener capture installati da injectComposerGuard bloccano anche il
+    // click sul send e l'Enter finche' window.__unslothLock e' vero.
+    private void lockComposer(boolean lock) {
+        try {
+            String js = "(function(){" +
+                    "window.__unslothLock=" + lock + ";" +
+                    "var s=document.querySelector('.aui-composer-send');" +
+                    "if(s){s.disabled=" + lock + ";}" +
+                    "var e=document.querySelector('.unsloth-composer-editor textarea');" +
+                    "if(e){e.readOnly=" + lock + ";" +
+                    (lock ? "e.style.opacity='0.6';" : "e.style.opacity='';") + "}" +
+                    "})();";
+            webView.evaluateJavascript(js, null);
+        } catch (Exception e) {
+            App.log("LOCK errore: " + e.getMessage());
+        }
+    }
+
+    // Listener capture su document (una volta per pagina): finche' il lock e'
+    // attivo bloccano il click sul pulsante send e l'Enter nell'editor.
+    // Stanno su document, quindi sopravvivono ai re-render di React/Studio.
+    private void injectComposerGuard() {
+        try {
+            String js = "(function(){" +
+                    "if(window.__unslothGuard)return;" +
+                    "window.__unslothGuard=true;window.__unslothLock=false;" +
+                    "document.addEventListener('click',function(ev){" +
+                    "if(!window.__unslothLock)return;" +
+                    "var t=ev.target;if(!t||!t.closest)return;" +
+                    "if(t.closest('.aui-composer-send')){ev.preventDefault();ev.stopPropagation();}" +
+                    "},true);" +
+                    "document.addEventListener('keydown',function(ev){" +
+                    "if(!window.__unslothLock)return;" +
+                    "var t=ev.target;if(!t||!t.closest)return;" +
+                    "if(t.closest('.unsloth-composer-editor')&&ev.key==='Enter'&&!ev.shiftKey){" +
+                    "ev.preventDefault();ev.stopPropagation();}" +
+                    "},true);" +
+                    "})();";
+            webView.evaluateJavascript(js, null);
+        } catch (Exception e) {
+            App.log("GUARD errore: " + e.getMessage());
+        }
     }
 
     private void showLog() {
@@ -1532,6 +1889,7 @@ public class MainActivity extends Activity {
             if (url != null) {
                 final String u = url;
                 runOnUiThread(() -> {
+                    mPageUrl = u;
                     App.log("REPORT-URL: sync su thread UI");
                     syncTokensFromPage();
                     if (!mLiveOpened && u.contains("chat") && !u.contains("/login")) {
@@ -1881,6 +2239,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        stopRunPolling();
         if (mDownloadReceiver != null) {
             unregisterReceiver(mDownloadReceiver);
             mDownloadReceiver = null;
