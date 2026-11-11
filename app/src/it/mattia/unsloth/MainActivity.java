@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
     private int mBlobChunkIndex;
     // Numero di versione mostrato nel drawer: incrementato a ogni build,
     // cosi Mattia sa sempre in quale versione è.
-    static final String APP_VERSION = "1.6";
+    static final String APP_VERSION = "1.7";
 
     private int mBlobChunkCount;
     private OutputStream mBlobOut;
@@ -763,24 +763,17 @@ public class MainActivity extends Activity {
         logPanel.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
         updateBar();
-        // Avvio: se c'e' l'ultimo thread visitato, apri direttamente la sua
-        // chat (una sola navigazione), cosi al riavvio l'app "resta ferma"
-        // dove l'avevi lasciata invece di ripartire dalla pagina base.
-        webView.loadUrl(startupUrl());
+        // Avvio (processo fresco, app killata): parte sempre dalla pagina base
+        // (nuova chat), non dall'ultimo thread visitato. Se l'app era solo in
+        // secondo piano il processo e' ancora vivo e onResume la mantiene sulla
+        // chat corrente senza riaprire nulla.
+        webView.loadUrl(currentUrl);
     }
 
-    // URL di avvio: ultimo thread visitato (prefs last_thread) se c'e',
-    // altrimenti la pagina base.
+    // URL di avvio: sempre la pagina base (nuova chat). L'ultimo thread
+    // visitato non guida piu' l'avvio: app killata -> pagina base, app in
+    // secondo piano -> onResume mantiene la chat corrente.
     private String startupUrl() {
-        if (currentUrl == null) return null;
-        if (mLastThread != null && !mLastThread.isEmpty()) {
-            try {
-                return currentUrl + "/chat?thread="
-                        + java.net.URLEncoder.encode(mLastThread, "UTF-8");
-            } catch (Exception e) {
-                return currentUrl + "/chat?thread=" + mLastThread;
-            }
-        }
         return currentUrl;
     }
 
@@ -875,8 +868,15 @@ public class MainActivity extends Activity {
         holder[0].run();
     }
 
-    // Interroga il server e apre da solo il thread più recentemente aggiornato.
+    // Apre un thread solo se c'e' un target esplicito (tap sulla notifica,
+    // extra "threadId"). Altrimenti l'app resta dove si trova (pagina base o
+    // chat corrente): niente auto-apertura dell'ultimo visitato ne' del piu'
+    // recentemente aggiornato.
     private void openLiveThread(final String base, final String token, final String rt, final String curUrl) {
+        if (mTargetThreadId == null || mTargetThreadId.isEmpty()) {
+            App.log("LIVE-THREAD: nessun target, resto dove sono");
+            return;
+        }
         new Thread(() -> {
             try {
                 java.net.URL u = new java.net.URL(base + "/api/chat/threads");
@@ -902,66 +902,17 @@ public class MainActivity extends Activity {
                 org.json.JSONObject root = new org.json.JSONObject(sb.toString());
                 org.json.JSONArray arr = root.optJSONArray("threads");
                 if (arr == null || arr.length() == 0) { App.log("LIVE-THREAD: lista thread vuota"); return; }
-                String bestId = null;
-                double bestTs = -1;
+                boolean found = false;
                 for (int i = 0; i < arr.length(); i++) {
-                    org.json.JSONObject t = arr.optJSONObject(i);
-                    if (t == null) continue;
-                    String id = t.optString("id");
-                    if (id.isEmpty()) continue;
-                    double ts = threadTs(t, "updatedAt");
-                    if (ts < 0) ts = threadTs(t, "createdAt");
-                    if (ts > bestTs) { bestTs = ts; bestId = id; }
+                    org.json.JSONObject t2 = arr.optJSONObject(i);
+                    if (t2 != null && mTargetThreadId.equals(t2.optString("id"))) { found = true; break; }
                 }
-                if (bestId == null) { App.log("LIVE-THREAD: nessun thread valido"); return; }
-                // Priorita' del target: ultimo thread visitato dal telefono
-                // (prefs last_thread) al posto del piu' recentemente
-                // aggiornato, cosi l'app riapre dove l'avevi lasciata. Se quel
-                // thread non e' piu' in lista (cancellato), resta il recente.
-                String targetId = bestId;
-                if (mLastThread != null && !mLastThread.isEmpty()) {
-                    boolean foundLast = false;
-                    for (int i = 0; i < arr.length(); i++) {
-                        org.json.JSONObject t2 = arr.optJSONObject(i);
-                        if (t2 != null && mLastThread.equals(t2.optString("id"))) { foundLast = true; break; }
-                    }
-                    if (foundLast) {
-                        targetId = mLastThread;
-                        App.log("LIVE-THREAD: uso l'ultimo thread visitato " + targetId);
-                    } else {
-                        App.log("LIVE-THREAD: ultimo thread non in lista, uso il piu' recente");
-                    }
-                }
-                // Arrivato dal tap sulla notifica: apre il thread target
-                // (extra "threadId") al posto di tutto il resto.
-                if (mTargetThreadId != null && !mTargetThreadId.isEmpty()) {
-                    boolean found = false;
-                    for (int i = 0; i < arr.length(); i++) {
-                        org.json.JSONObject t2 = arr.optJSONObject(i);
-                        if (t2 != null && mTargetThreadId.equals(t2.optString("id"))) { found = true; break; }
-                    }
-                    if (found) {
-                        targetId = mTargetThreadId;
-                        App.log("LIVE-THREAD: uso il target dall'intent " + targetId);
-                    } else {
-                        App.log("LIVE-THREAD: target non in lista, uso il piu' recente");
-                    }
-                }
-                mTargetThreadId = "";
-                String curId = null;
-                if (curUrl != null && curUrl.contains("thread=")) {
-                    int p = curUrl.indexOf("thread=") + 7;
-                    int q = curUrl.indexOf('&', p);
-                    String raw = (q >= 0) ? curUrl.substring(p, q) : curUrl.substring(p);
-                    try { curId = java.net.URLDecoder.decode(raw, "UTF-8"); } catch (Exception e) { curId = raw; }
-                }
-                App.log("LIVE-THREAD: target id=" + targetId + " ts=" + bestTs + " | attuale=" + curId);
-                if (targetId.equals(curId)) {
-                    App.log("LIVE-THREAD: gia' sul thread target");
-                    mLiveOpened = true;
+                if (!found) {
+                    App.log("LIVE-THREAD: target non in lista, resto dove sono");
                     return;
                 }
-                final String fid = targetId;
+                final String fid = mTargetThreadId;
+                mTargetThreadId = "";
                 runOnUiThread(() -> {
                     try {
                         String target = base + "/chat?thread=" + java.net.URLEncoder.encode(fid, "UTF-8");

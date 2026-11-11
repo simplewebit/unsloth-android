@@ -11,8 +11,8 @@
     <application
         android:name=".App"
         android:label="Unsloth"
-        android:versionCode="4"
-        android:versionName="1.6"
+        android:versionCode="5"
+        android:versionName="1.7"
         android:icon="@drawable/ic_launcher"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
