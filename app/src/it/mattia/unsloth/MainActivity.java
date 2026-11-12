@@ -148,6 +148,9 @@ public class MainActivity extends Activity {
     // Thread target arrivato dal tap sulla notifica (extra "threadId"):
     // all'avvio openLiveThread lo apre al posto del thread piu' recente.
     private volatile String mTargetThreadId = "";
+    // URL della pagina in cui e' partito l'ultimo heal: dopo il refresh
+    // ricarico questa pagina (la chat corrente), non la pagina base.
+    private volatile String mHealReturnUrl = null;
 
     // v1.5: rilevazione cross-client dei run. Mentre l'app e' su una pagina
     // chat fa polling di /chat-runs/active?threadId=X (account-level): se nel
@@ -177,7 +180,7 @@ public class MainActivity extends Activity {
     private int mBlobChunkIndex;
     // Numero di versione mostrato nel drawer: incrementato a ogni build,
     // cosi Mattia sa sempre in quale versione è.
-    static final String APP_VERSION = "1.7";
+    static final String APP_VERSION = "1.8";
 
     private int mBlobChunkCount;
     private OutputStream mBlobOut;
@@ -298,7 +301,7 @@ public class MainActivity extends Activity {
                     if (mInForeground && mScreenOffWhileForeground) {
                         mScreenOffWhileForeground = false;
                         if (!isRecentGen()) {
-                            autoResync("screen-on");
+                            wakeRefreshThenResync();
                         } else {
                             App.log("RESYNC screen-on: generazione recente, salto");
                         }
@@ -803,6 +806,7 @@ public class MainActivity extends Activity {
         mHealRunning = true;
         String js = JS_READ_TOKENS;
         final String curUrl = webView.getUrl();
+        mHealReturnUrl = curUrl;
         // La SPA idrata il localStorage poco dopo onPageFinished: un primo
         // lettura vuota non significa sessione morta. Si rilegge con retry.
         readTokensWithRetry(js, 6, 2000L, (at, rt) -> {
@@ -1001,10 +1005,13 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript(js, null);
         mAutoOpenPending = true;
         webView.clearCache(true);
-        App.log("AUTH-HEAL: token scritto, ricarico la pagina");
-        // Stesso URL di avvio: dopo il refresh torno alla chat che stavo
-        // usando, non alla pagina base.
-        webView.loadUrl(startupUrl());
+        // Dopo il refresh torno alla chat che stavo usando (URL catturato al
+        // momento del heal), non alla pagina base: cosi schermo spento/acceso
+        // dentro una chat la mantiene, anche se il token era scaduto.
+        String ret = mHealReturnUrl;
+        if (ret == null || ret.isEmpty()) ret = startupUrl();
+        App.log("AUTH-HEAL: token scritto, ricarico " + ret);
+        webView.loadUrl(ret);
     }
 
     // Refresh fallito (sessione morta): svuoto localStorage e IndexedDB della
@@ -1031,6 +1038,83 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript(js, null);
     }
 
+    // Schermo acceso in una chat: prima del resync rinnovo il token dai
+    // prefs (il keepalive lo tiene fresco), cosi la pagina riparte con un
+    // access token valido e resta nella chat invece di cadere sul login.
+    // Il refresh della SPA da solo non basta: dopo 50 min il keepalive ha
+    // gia' ruotato il refresh token nei prefs e quello della pagina e'
+    // morto (rotazione monouso), quindi la SPA finirebbe su /login.
+    // Se il refresh e' rifiutato (logout o sessione morta) svuoto lo stato
+    // locale e vado al login, come fa la SPA stessa; un errore di rete non
+    // tocca lo stato locale e faccio il resync normale.
+    private void wakeRefreshThenResync() {
+        String pageUrl = webView.getUrl();
+        if (pageUrl == null || !pageUrl.contains("chat")) {
+            autoResync("screen-on");
+            return;
+        }
+        String base = currentUrl;
+        if (base == null || base.isEmpty()) {
+            autoResync("screen-on");
+            return;
+        }
+        String rtPrefs = getSharedPreferences(PREFS, MODE_PRIVATE).getString("auth_refresh", "");
+        if (rtPrefs.isEmpty()) {
+            App.log("AUTH-WAKE: nessun refresh nei prefs, resync normale");
+            autoResync("screen-on");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                java.net.URL u = new java.net.URL(base + "/api/auth/refresh");
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(20000);
+                c.setDoOutput(true);
+                c.getOutputStream().write(("{\"refresh_token\":\"" + rtPrefs + "\"}").getBytes("UTF-8"));
+                int code = c.getResponseCode();
+                if (code == 401) {
+                    App.log("AUTH-WAKE: refresh rifiutato (401), sessione morta");
+                    runOnUiThread(() -> healFailed());
+                    return;
+                }
+                if (code != 200) {
+                    App.log("AUTH-WAKE: refresh HTTP " + code + ", resync normale");
+                    runOnUiThread(() -> autoResync("screen-on"));
+                    return;
+                }
+                java.io.InputStream in = c.getInputStream();
+                StringBuilder sb = new StringBuilder();
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(in, "UTF-8"));
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                org.json.JSONObject j = new org.json.JSONObject(sb.toString());
+                final String fat = j.optString("access_token");
+                final String fnrt = j.optString("refresh_token");
+                if (fat.isEmpty() || fnrt.isEmpty()) {
+                    App.log("AUTH-WAKE: 200 senza token, resync normale");
+                    runOnUiThread(() -> autoResync("screen-on"));
+                    return;
+                }
+                App.log("AUTH-WAKE: refresh ok, inietto il token fresco");
+                runOnUiThread(() -> {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putString("auth_access", fat).putString("auth_refresh", fnrt)
+                            .putLong("auth_synced_ts", System.currentTimeMillis()).apply();
+                    String js = "(function(){try{localStorage.setItem('unsloth_auth_token','" + fat + "');" +
+                            "localStorage.setItem('unsloth_auth_refresh_token','" + fnrt + "');}catch(e){}})()";
+                    webView.evaluateJavascript(js, null);
+                    autoResync("screen-on");
+                });
+            } catch (Exception e) {
+                App.log("AUTH-WAKE: refresh errore " + e.getMessage() + ", resync normale");
+                runOnUiThread(() -> autoResync("screen-on"));
+            }
+        }).start();
+    }
+
     // A ogni pagina carica: salvo nei prefs i token correnti della web view,
     // cosi il keepalive ha sempre il refresh token più fresco.
     private void syncTokensFromPage() {
@@ -1050,7 +1134,21 @@ public class MainActivity extends Activity {
                     App.log("SYNC-TOKENS: nessun token in pagina");
                     return;
                 }
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                // Il keepalive ruota il refresh token nei prefs senza aggiornare
+                // la pagina: dopo la rotazione i token della pagina sono vecchi.
+                // Se li salvassi nei prefs cancellerei l'unico refresh ancora
+                // vivo e al prossimo heal la sessione morrebbe. Salvo i token
+                // della pagina solo se sono almeno freschi quanto quelli dei
+                // prefs (stesso server: il confronto di exp e' affidabile).
+                SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+                String atPrefs = p.getString("auth_access", "");
+                long expPage = jwtExpMs(at);
+                long expPrefs = atPrefs.isEmpty() ? -1 : jwtExpMs(atPrefs);
+                if (expPage < 0 || expPrefs > expPage) {
+                    App.log("SYNC-TOKENS: token pagina non piu' fresco dei prefs, salto");
+                    return;
+                }
+                p.edit()
                         .putString("auth_access", at).putString("auth_refresh", rt)
                         .putLong("auth_synced_ts", System.currentTimeMillis()).apply();
                 App.log("SYNC-TOKENS: salvati nei prefs");
@@ -1211,7 +1309,16 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 // ignora
             }
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(gi); else startService(gi);
+            try {
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(gi); else startService(gi);
+            } catch (Exception e) {
+                // Schermo spento: l'app e' gia' in background e Android 12+
+                // vieta startForegroundService da qui -> senza catch il
+                // processo crasha e al rientro si parte dalla pagina base.
+                // Il service, se gia' partito col POST chat-runs, continua;
+                // al rientro onResume riprova l'avvio (startGenServiceNow).
+                App.log("GEN: avvio FGS in onPause fallito " + e.getMessage());
+            }
         }
     }
 

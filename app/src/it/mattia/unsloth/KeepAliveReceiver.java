@@ -13,7 +13,15 @@ public class KeepAliveReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         App.log("KEEPALIVE: allarme ricevuto");
         Intent i = new Intent(context, KeepAliveService.class);
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i);
-        else context.startService(i);
+        try {
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i);
+            else context.startService(i);
+        } catch (Exception e) {
+            // Allarme con l'app in background (schermo spento): Android 12+
+            // vieta startForegroundService dal receiver -> senza catch il
+            // processo crasha. Salto il ciclo: al rientro onResume riprogramma
+            // l'allarme e il heal di avvio recupera il token se serve.
+            App.log("KEEPALIVE: avvio service fallito " + e.getMessage());
+        }
     }
 }
