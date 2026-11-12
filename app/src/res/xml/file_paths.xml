@@ -2,4 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="downloads" path="Download/"/>
     <external-path name="ext" path="."/>
+    <!-- v2: APK scaricato per l'auto-update in getFilesDir()/update/ -->
+    <files-path name="files" path="."/>
 </paths>

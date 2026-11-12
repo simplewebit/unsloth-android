@@ -46,10 +46,19 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.drawerlayout.widget.DrawerLayout;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Locale;
@@ -180,7 +189,18 @@ public class MainActivity extends Activity {
     private int mBlobChunkIndex;
     // Numero di versione mostrato nel drawer: incrementato a ogni build,
     // cosi Mattia sa sempre in quale versione è.
-    static final String APP_VERSION = "1.8";
+    static final String APP_VERSION = "2.0";
+
+    // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
+    private View updateBanner;
+    private TextView updateText;
+    private Button btnUpdateDownload;
+    private TextView updateStatus;
+    private Button btnCheckUpdates;
+    private boolean mUpdateAvailable = false;
+    private String mUpdateApkUrl;
+    private boolean mUpdateChecking;
+    private boolean mUpdateDownloading;
 
     private int mBlobChunkCount;
     private OutputStream mBlobOut;
@@ -395,6 +415,15 @@ public class MainActivity extends Activity {
             logText = findViewById(R.id.log_text);
             gestureStrip = findViewById(R.id.gesture_strip);
             ((TextView) findViewById(R.id.tv_version)).setText(APP_VERSION);
+            // v2: banner nuova versione (visibile solo se GitHub ha una release
+            // più recente di APP_VERSION).
+            updateBanner = findViewById(R.id.update_banner);
+            updateText = findViewById(R.id.update_text);
+            btnUpdateDownload = findViewById(R.id.btn_update_download);
+            btnUpdateDownload.setOnClickListener(v -> startUpdate());
+            updateStatus = findViewById(R.id.update_status);
+            btnCheckUpdates = findViewById(R.id.btn_check_updates);
+            btnCheckUpdates.setOnClickListener(v -> manualUpdateCheck());
             App.log("MainActivity.onCreate: view trovati (versione " + APP_VERSION + ")");
 
 
@@ -713,6 +742,11 @@ public class MainActivity extends Activity {
                 && logPanel.getVisibility() != View.VISIBLE;
         // Icona di ricarica: solo dentro la chat/Unsloth, non nei pannelli.
         if (btnReload != null) btnReload.setVisibility(webActive ? View.VISIBLE : View.GONE);
+        // v2: banner solo sulla schermata principale: nascosto quando un pannello
+        // è aperto (altrimenti coprirebbe il contenuto del pannello, es. Credits).
+        if (updateBanner != null) {
+            updateBanner.setVisibility(mUpdateAvailable && webActive ? View.VISIBLE : View.GONE);
+        }
         if (webActive && mScrollY > HIDE_SCROLL_Y) {
             hideBar();
         } else {
@@ -771,6 +805,8 @@ public class MainActivity extends Activity {
         // secondo piano il processo e' ancora vivo e onResume la mantiene sulla
         // chat corrente senza riaprire nulla.
         webView.loadUrl(currentUrl);
+        // v2: all'avvio verifica se su GitHub c'è una release più recente.
+        checkForNewVersion();
     }
 
     // URL di avvio: sempre la pagina base (nuova chat). L'ultimo thread
@@ -1896,6 +1932,224 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             App.log("SHARE LOG FAILED: " + e.getMessage());
             Toast.makeText(this, getString(R.string.download_error, e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // v2: interroga l'API pubblica GitHub (releases/latest) e restituisce la
+    // release più recente di APP_VERSION con asset Unsloth.apk (o error=true).
+    // Senza token (repo pubblico); senza rete o su errore torna error=true. Il
+    // pref update_api_base permette di puntare il check a un altro endpoint
+    // (usato nel collaudo emulatore).
+    private static class UpdateCheckResult {
+        String version = "";   // nuova versione, se c'è
+        String apkUrl = null;  // URL asset, se c'è
+        boolean error = false;
+    }
+
+    private UpdateCheckResult fetchLatestRelease() {
+        UpdateCheckResult r = new UpdateCheckResult();
+        try {
+            String base = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("update_api_base",
+                            "https://api.github.com/repos/simplewebit/unsloth-android");
+            HttpURLConnection conn = (HttpURLConnection) new URL(base + "/releases/latest").openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setRequestProperty("User-Agent", "unsloth-android-" + APP_VERSION);
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                App.log("UPDATE-CHECK: HTTP " + code + ", salto");
+                r.error = true;
+                return r;
+            }
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            InputStream in = conn.getInputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+            in.close();
+            String json = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+            JSONObject rel = new JSONObject(json);
+            String tag = rel.optString("tag_name", "");
+            String ver = tag.startsWith("v") ? tag.substring(1) : tag;
+            if (ver.isEmpty() || !isVersionNewer(ver, APP_VERSION)) {
+                App.log("UPDATE-CHECK: ultima release " + tag + ", niente da fare");
+                return r;
+            }
+            String apkUrl = null;
+            JSONArray assets = rel.optJSONArray("assets");
+            if (assets != null) {
+                for (int i = 0; i < assets.length(); i++) {
+                    JSONObject a = assets.getJSONObject(i);
+                    if ("Unsloth.apk".equals(a.optString("name"))) {
+                        apkUrl = a.optString("browser_download_url");
+                        break;
+                    }
+                }
+            }
+            if (apkUrl == null || apkUrl.isEmpty()) {
+                App.log("UPDATE-CHECK: release " + tag + " senza asset Unsloth.apk, salto");
+                r.error = true;
+                return r;
+            }
+            r.version = ver;
+            r.apkUrl = apkUrl;
+        } catch (Exception e) {
+            App.log("UPDATE-CHECK FAILED: " + e.getMessage());
+            r.error = true;
+        }
+        return r;
+    }
+
+    // v2: all'avvio (cold start): se c'è una release più recente mostra il
+    // banner in-app.
+    private void checkForNewVersion() {
+        if (mUpdateChecking) return;
+        mUpdateChecking = true;
+        new Thread(() -> {
+            try {
+                UpdateCheckResult r = fetchLatestRelease();
+                if (!r.error && r.apkUrl != null) {
+                    mUpdateApkUrl = r.apkUrl;
+                    mUpdateAvailable = true;
+                    runOnUiThread(() -> {
+                        updateText.setText(getString(R.string.update_available, r.version));
+                        updateBar();
+                    });
+                    App.log("UPDATE-CHECK: nuova versione " + r.version + ", banner mostrato");
+                }
+            } finally {
+                mUpdateChecking = false;
+            }
+        }).start();
+    }
+
+    // v2: pulsante "Controlla aggiornamenti" nella pagina Credits: check
+    // manuale e, se c'è una release più recente, avvia subito download +
+    // installazione. Il risultato si vede in update_status.
+    private void manualUpdateCheck() {
+        if (mUpdateChecking) return;
+        mUpdateChecking = true;
+        runOnUiThread(() -> {
+            updateStatus.setTextColor(android.graphics.Color.parseColor("#555555"));
+            updateStatus.setText(getString(R.string.update_checking));
+            btnCheckUpdates.setEnabled(false);
+        });
+        new Thread(() -> {
+            try {
+                UpdateCheckResult r = fetchLatestRelease();
+                runOnUiThread(() -> {
+                    if (r.error) {
+                        updateStatus.setTextColor(android.graphics.Color.parseColor("#D32F2F"));
+                        updateStatus.setText(getString(R.string.update_check_failed));
+                    } else if (r.apkUrl != null) {
+                        mUpdateApkUrl = r.apkUrl;
+                        updateStatus.setTextColor(android.graphics.Color.parseColor("#00A371"));
+                        updateStatus.setText(getString(R.string.update_available, r.version));
+                        App.log("UPDATE-MANUAL: nuova versione " + r.version + ", avvio aggiornamento");
+                        downloadAndInstall(r.apkUrl);
+                    } else {
+                        updateStatus.setTextColor(android.graphics.Color.parseColor("#00A371"));
+                        updateStatus.setText(getString(R.string.update_up_to_date));
+                        App.log("UPDATE-MANUAL: sei aggiornato");
+                    }
+                });
+            } finally {
+                mUpdateChecking = false;
+                runOnUiThread(() -> btnCheckUpdates.setEnabled(true));
+            }
+        }).start();
+    }
+
+    // Confronto numerico di versioni dotate ("2.1" > "2.0" > "1.8").
+    private static boolean isVersionNewer(String a, String b) {
+        int[] va = parseVersion(a);
+        int[] vb = parseVersion(b);
+        int len = Math.max(va.length, vb.length);
+        for (int i = 0; i < len; i++) {
+            int x = i < va.length ? va[i] : 0;
+            int y = i < vb.length ? vb[i] : 0;
+            if (x != y) return x > y;
+        }
+        return false;
+    }
+
+    private static int[] parseVersion(String s) {
+        String[] p = s.split("\\.");
+        int[] out = new int[p.length];
+        for (int i = 0; i < p.length; i++) {
+            try {
+                out[i] = Integer.parseInt(p[i].trim());
+            } catch (Exception e) {
+                out[i] = 0;
+            }
+        }
+        return out;
+    }
+
+    // v2: tap sul banner -> (se serve) permesso "installa app sconosciute",
+    // poi download nativo dell'APK in getFilesDir()/update/ e intento di
+    // installazione.
+    private void startUpdate() {
+        if (mUpdateApkUrl == null || mUpdateApkUrl.isEmpty()) return;
+        // REQUEST_INSTALL_PACKAGES e' un tipo protetto: requestPermissions non
+        // mostra alcun dialogo e torna DENIED subito (Android 11+). Il permesso
+        // si concede tramite PackageInstaller quando parte l'intento di
+        // installazione, quindi qui si va dritti al download.
+        downloadAndInstall(mUpdateApkUrl);
+    }
+
+    private void downloadAndInstall(final String url) {
+        if (mUpdateDownloading) return;
+        mUpdateDownloading = true;
+        runOnUiThread(() -> Toast.makeText(this, getString(R.string.update_downloading), Toast.LENGTH_LONG).show());
+        new Thread(() -> {
+            File out = null;
+            try {
+                File dir = new File(getFilesDir(), "update");
+                if (!dir.exists() && !dir.mkdirs()) throw new IOException("crea cartella update");
+                out = new File(dir, "Unsloth.apk");
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(60000);
+                conn.setRequestProperty("User-Agent", "unsloth-android-" + APP_VERSION);
+                int code = conn.getResponseCode();
+                if (code != 200) throw new IOException("HTTP " + code);
+                InputStream in = conn.getInputStream();
+                FileOutputStream fos = new FileOutputStream(out);
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                fos.close();
+                in.close();
+                App.log("UPDATE: APK scaricato, " + out.length() + " byte");
+                final File downloaded = out;
+                runOnUiThread(() -> installApk(downloaded));
+            } catch (Exception e) {
+                App.log("UPDATE DOWNLOAD FAILED: " + e.getMessage());
+                if (out != null) out.delete();
+                final String msg = e.getMessage() == null ? e.toString() : e.getMessage();
+                runOnUiThread(() -> Toast.makeText(this, getString(R.string.update_error, msg), Toast.LENGTH_LONG).show());
+            } finally {
+                mUpdateDownloading = false;
+            }
+        }).start();
+    }
+
+    // Intent di installazione: FileProvider (gia' nel manifest) + ACTION_VIEW
+    // con tipo application/vnd.android.package-archive.
+    private void installApk(File f) {
+        try {
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, "it.mattia.unsloth.fileprovider", f);
+            Intent inst = new Intent(Intent.ACTION_VIEW);
+            inst.setDataAndType(uri, "application/vnd.android.package-archive");
+            inst.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            App.log("UPDATE: intento installazione " + uri);
+            startActivity(inst);
+        } catch (Exception e) {
+            App.log("UPDATE INSTALL FAILED: " + e.getMessage());
+            Toast.makeText(this, getString(R.string.update_error, e.getMessage()), Toast.LENGTH_LONG).show();
         }
     }
 

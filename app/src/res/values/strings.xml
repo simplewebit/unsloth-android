@@ -62,6 +62,16 @@
     <string name="downloads_channel_desc">Unsloth download notifications</string>
     <string name="crash_toast">Crash! Log in crash.log</string>
 
+    <!-- Update banner (v2) -->
+    <string name="update_available">New version available: %1$s</string>
+    <string name="update_download">Download</string>
+    <string name="update_downloading">Downloading update…</string>
+    <string name="update_error">Update error: %1$s</string>
+    <string name="check_updates">Check for updates</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_up_to_date">You\'re up to date</string>
+    <string name="update_check_failed">Update check failed</string>
+
     <!-- Notifications -->
     <string name="notif_ready_title">Unsloth: reply ready</string>
     <string name="notif_ready_text_default">Generation finished, open the app to read it</string>

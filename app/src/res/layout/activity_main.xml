@@ -72,6 +72,42 @@
             android:textColor="#9E9E9E"
             android:textSize="10sp"/>
 
+        <!-- v2: banner nuova versione. Visibile solo se su GitHub c'è una release
+             più recente dell'APK installato; tap -> download diretto + installazione. -->
+        <LinearLayout
+            android:id="@+id/update_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:background="#00BB7F"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/update_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"/>
+
+            <Button
+                android:id="@+id/btn_update_download"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_btn_white"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:text="@string/update_download"
+                android:textColor="#00A371"
+                android:textStyle="bold"/>
+        </LinearLayout>
+
 
         <ScrollView
             android:id="@+id/options_panel"
@@ -371,10 +407,35 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="1.8"
+                    android:text="2.0"
                     android:textColor="#555555"
                     android:textSize="12sp"
                     android:textStyle="italic"/>
+
+                <!-- v2: check manuale aggiornamenti (pagina Credits) -->
+                <TextView
+                    android:id="@+id/update_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:gravity="center"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:textColor="#555555"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+
+                <Button
+                    android:id="@+id/btn_check_updates"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_gen_box"
+                    android:paddingStart="28dp"
+                    android:paddingEnd="28dp"
+                    android:text="@string/check_updates"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold"/>
             </LinearLayout>
         </ScrollView>
 
