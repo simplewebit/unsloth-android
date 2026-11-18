@@ -128,6 +128,12 @@ public class MainActivity extends Activity {
     // la chat in corso. Robusto anche con piu' cicli onResume/screen-on dentro la finestra.
     private static final long GEN_WINDOW_MS = 10 * 60 * 1000L;
     private volatile long mGenStartMs = 0;
+    // Id del run avviato da questo telefono (catturato dal polling
+    // /chat-runs/<id>/events): cosi un run "mio" resta riconosciuto come mio
+    // anche oltre la finestra di 10 min di isRecentGen() (run lunghi > 10 min).
+    private volatile String mMyRunId = null;
+    // Thread per cui ripristinare lo scroll all'avvio (ultimo thread ripreso).
+    private volatile String mScrollRestoreThread = null;
     // Timestamp del ultimo onPause: serve a capire se la generazione e' finita
     // MENTRE eravamo via (gen_done_ts > mSuspendTs) o prima (in quel caso il
     // check /active lo decide).
@@ -187,9 +193,9 @@ public class MainActivity extends Activity {
     private long mBlobTotal;
     private long mBlobReceived;
     private int mBlobChunkIndex;
-    // Numero di versione mostrato nel drawer: incrementato a ogni build,
-    // cosi Mattia sa sempre in quale versione è.
-    static final String APP_VERSION = "2.0";
+    // Versione dell'app: incrementata a ogni build, usata nel check update
+    // GitHub e nel User-Agent (non più mostrata a schermo).
+    static final String APP_VERSION = "2.6";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -414,7 +420,6 @@ public class MainActivity extends Activity {
             creditsPanel = findViewById(R.id.credits_panel);
             logText = findViewById(R.id.log_text);
             gestureStrip = findViewById(R.id.gesture_strip);
-            ((TextView) findViewById(R.id.tv_version)).setText(APP_VERSION);
             // v2: banner nuova versione (visibile solo se GitHub ha una release
             // più recente di APP_VERSION).
             updateBanner = findViewById(R.id.update_banner);
@@ -520,6 +525,38 @@ public class MainActivity extends Activity {
                 updateBar();
                 webView.loadUrl(currentUrl);
             }
+        });
+        // v2.6: "Progetti e sessioni": chiude il drawer dell'app e apre la barra
+        // laterale sinistra dell'SPA (lista di tutte le chat e i progetti),
+        // cliccando il bottone "Open sidebar" dell'SPA stesso.
+        View btnProjectsSessions = findViewById(R.id.btn_projects_sessions);
+        btnProjectsSessions.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(Gravity.START);
+            openSpaSidebar();
+        });
+        // v2.5: voci del drawer sulle pagine SPA di Studio (route verificate nel
+        // frontend: /hub = hub dei modelli, /images = immagini, /settings =
+        // impostazioni; la chat nuova e' /chat?new=<nonce>, come il bottone
+        // "New chat" dell'SPA).
+        View btnNewChat = findViewById(R.id.btn_newchat);
+        btnNewChat.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(Gravity.START);
+            openSpaPage("/chat?new=" + java.util.UUID.randomUUID());
+        });
+        View btnModelHub = findViewById(R.id.btn_modelhub);
+        btnModelHub.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(Gravity.START);
+            openSpaPage("/hub");
+        });
+        View btnImages = findViewById(R.id.btn_images);
+        btnImages.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(Gravity.START);
+            openSpaPage("/images");
+        });
+        View btnStudioSettings = findViewById(R.id.btn_studio_settings);
+        btnStudioSettings.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(Gravity.START);
+            openSpaPage("/settings");
         });
         View btnRefresh = findViewById(R.id.btn_refresh);
         btnRefresh.setOnClickListener(v -> {
@@ -662,6 +699,23 @@ public class MainActivity extends Activity {
                             // keep-alive anche se l'app va in background).
                             startGenServiceNow();
                         }
+                        // Studio, dopo il POST chat-runs, fa polling
+                        // /chat-runs/<runId>/events: quell'id e' il "run mio",
+                        // salvato (anche in prefs) per il poll /active: cosi un
+                        // run lungo partito da qui non diventa "cross-client".
+                        int evi = uStr.indexOf("/api/inference/chat-runs/");
+                        if (evi >= 0 && uStr.contains("/events")) {
+                            String rest2 = uStr.substring(evi + "/api/inference/chat-runs/".length());
+                            int ej = rest2.indexOf('/');
+                            if (ej > 0) {
+                                String rid = rest2.substring(0, ej);
+                                if (!rid.isEmpty() && !rid.equals("undefined")) {
+                                    mMyRunId = rid;
+                                    getSharedPreferences(PREFS, MODE_PRIVATE)
+                                            .edit().putString("my_run_id", rid).apply();
+                                }
+                            }
+                        }
                     }
                 } catch (Exception e) {
                     // ignora
@@ -684,6 +738,7 @@ public class MainActivity extends Activity {
                 injectBlobInterceptor();
                 injectUrlReporter();
                 injectComposerGuard();
+                injectWarningHider();
             }
 
             @Override
@@ -695,21 +750,33 @@ public class MainActivity extends Activity {
                     errorPanel.setVisibility(View.GONE);
                 }
                 updateBar();
+                // Doppo il commit il documento in memoria e' quello nuovo
+                // e completo: l'iniezione ritardata tocca sempre la pagina
+                // vera (le iniezioni di onPageStarted finiscono spesso nel
+                // documento precedente, che muore col cambio). La guardia
+                // window.__unslothToastGuard evita i doppi.
+                new android.os.Handler(getMainLooper())
+                        .postDelayed(MainActivity.this::injectWarningHider, 500);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 mPageUrl = url;
                 syncTokensFromPage();
+                injectWarningHider();
                 if (mAutoOpenPending && url != null && !url.contains("/login")) {
                     mAutoOpenPending = false;
                     healAndOpenLive();
                 }
+                restoreScrollIfResuming(url);
             }
         });
 
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         mLastThread = prefs.getString("last_thread", null);
+        // Run avviato dalla sessione precedente, ancora attivo: riapendolo
+        // l'app lo riconosce come "mio" (niente banner cross-client).
+        mMyRunId = prefs.getString("my_run_id", null);
         String host = prefs.getString("host", "");
         String port = prefs.getString("port", "8888");
         App.log("MainActivity.onCreate: prefs host=" + host + " port=" + port);
@@ -721,6 +788,45 @@ public class MainActivity extends Activity {
             openOptions();
         }
         App.log("MainActivity.onCreate: FINE - app avviata con successo");
+    }
+
+    // Se sto riaprendo l'ultimo thread all'avvio (mScrollRestoreThread),
+    // ripristino la posizione di scroll salvata in onPause. Studio puo'
+    // renderizzare i messaggi dopo onPageFinished: ripeto il scrollTo a
+    // intervalli (1.5-10 s); l'ultima chiamata vince. Una sola volta per
+    // connessione.
+    private void restoreScrollIfResuming(String url) {
+        if (mScrollRestoreThread == null || url == null) return;
+        int i = url.indexOf("thread=");
+        if (i < 0) return;
+        i += 7;
+        int j = url.indexOf('&', i);
+        String id = j > 0 ? url.substring(i, j) : url.substring(i);
+        try {
+            id = java.net.URLDecoder.decode(id, "UTF-8");
+        } catch (Exception ignored) {
+        }
+        if (!id.equals(mScrollRestoreThread)) return;
+        final String tid = id;
+        mScrollRestoreThread = null; // consumato: una volta per connessione
+        final long y = getSharedPreferences(PREFS, MODE_PRIVATE).getLong("scroll_" + tid, 0);
+        if (y <= 0) return;
+        final int yv = (int) y;
+        final android.os.Handler h = new android.os.Handler(getMainLooper());
+        long[] delays = {1500L, 3000L, 5000L, 8000L, 10000L};
+        for (long d : delays) {
+            h.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        webView.evaluateJavascript("window.scrollTo(0," + yv + ")", null);
+                    } catch (Exception e) {
+                        // ignora
+                    }
+                }
+            }, d);
+        }
+        App.log("SCROLL-RESTORE: thread " + tid + " a y=" + yv);
     }
 
     private void showBar() {
@@ -764,6 +870,74 @@ public class MainActivity extends Activity {
         editHost.requestFocus();
     }
 
+    // v2.5: apre una pagina SPA di Studio (path relativo alla base salvata).
+    // Le route sono verificate nel frontend dist e sul server vivo:
+    // /hub = hub dei modelli, /images = immagini, /settings = impostazioni,
+    // /chat?new=<nonce> = nuova chat (come il bottone "New chat" dell'SPA).
+    private void openSpaPage(String path) {
+        if (currentUrl == null) return;
+        try {
+            String url = new java.net.URL(new java.net.URL(currentUrl), path).toString();
+            App.log("SPA: apri " + url);
+            mErrorActive = false;
+            errorPanel.setVisibility(View.GONE);
+            logPanel.setVisibility(View.GONE);
+            creditsPanel.setVisibility(View.GONE);
+            optionsPanel.setVisibility(View.GONE);
+            webView.setVisibility(View.VISIBLE);
+            updateBar();
+            webView.loadUrl(url);
+        } catch (Exception e) {
+            App.log("SPA: openSpaPage FAILED: " + e.getMessage());
+        }
+    }
+
+    // v2.6: apre la barra laterale sinistra dell'SPA (chat e progetti)
+    // cliccando il suo bottone toggle. L'aria-label dipende dalla lingua
+    // dell'SPA: "Open sidebar" (EN) / "Apri la barra laterale" (IT).
+    // Se la barra è già aperta esiste il bottone "Close sidebar": in quel
+    // caso non facciamo niente. Se non c'è nessuno dei due (pagina senza
+    // sidebar, SPA non caricata) lo segnala nel log.
+    private void openSpaSidebar() {
+        // Il toggle della sidebar dell'SPA, verificato nel bundle dist:
+        // [data-slot="sidebar-edge-trigger"] esiste solo su desktop;
+        // su mobile (viewport < 767px, il caso dell'app) il toggle e'
+        // il bottone [data-slot="sidebar-trigger"] della topbar
+        // (funzione di() nel chunk download-approval: al click chiama
+        // toggleSidebar che apre o chiude lo sheet mobile). Il pannello
+        // vero e' [data-slot="sidebar"] (assente dal DOM quando e'
+        // chiuso): se c'e' con larghezza > 10 non clicco, per non
+        // chiuderlo. Ultimo tentativo: aria-label in EN/IT.
+        String js = "(function(){"
+                + "var e=document.querySelector('[data-slot=\"sidebar-edge-trigger\"]');"
+                + "if(e){e.click();return 'edge';}"
+                + "var p=document.querySelector('[data-slot=\"sidebar\"]');"
+                + "if(p&&p.getBoundingClientRect().width>10)return 'already-open';"
+                + "var s=document.querySelector('[data-slot=\"sidebar-trigger\"]');"
+                + "if(s){s.click();return 'trigger';}"
+                + "var bs=document.querySelectorAll('button[aria-label]');"
+                + "var labels=[];"
+                + "for(var i=0;i<bs.length;i++)labels.push((bs[i].getAttribute('aria-label')||'').toLowerCase());"
+                + "for(var i=0;i<bs.length;i++){"
+                + "var l=labels[i];"
+                + "if(l==='open sidebar'||l==='apri la barra laterale'){bs[i].click();return 'opened';}"
+                + "if(l==='close sidebar'||l==='chiudi la barra laterale')return 'already-open';}"
+                + "return 'not-found: '+labels.slice(0,40).join('|');})()";
+        webView.evaluateJavascript(js, value -> App.log("SIDEBAR-OPEN: " + value));
+        // Dopo 1.5 s leggo la larghezza del pannello sidebar per
+        // verificare che si e' davvero aperto (0/circa 0 = chiuso).
+        new android.os.Handler(getMainLooper()).postDelayed(() ->
+                webView.evaluateJavascript(
+                        "(function(){var p=document.querySelector('[data-slot=\"sidebar\"]');"
+                                + "if(p)return 'panel-w=' + Math.round(p.getBoundingClientRect().width);"
+                                + "var ds=document.querySelectorAll('[data-sidebar]');"
+                                + "var w=0;"
+                                + "for(var i=0;i<ds.length;i++){var r=ds[i].getBoundingClientRect();if(r.width>w)w=r.width;}"
+                                + "return 'sidebar-w=' + Math.round(w);})()",
+                        value -> App.log("SIDEBAR-STATE: " + value)),
+                1500);
+    }
+
     private void connectFromSettings() {
         String host = editHost.getText().toString().trim();
         String port = editPort.getText().toString().trim();
@@ -792,6 +966,17 @@ public class MainActivity extends Activity {
         }
         currentUrl = url;
         mAutoOpenPending = true;
+        // Avvio (processo fresco, app killata) o ricollegamento: riprendo
+        // l'ultimo thread visitato (mLastThread, salvato nei prefs da
+        // reportUrl). openLiveThread lo verifica sul server e, se non esiste
+        // piu', l'app resta sulla pagina base. Se mTargetThreadId e' gia' un
+        // tap su notifica, non lo sovrascrivo.
+        if ((mTargetThreadId == null || mTargetThreadId.isEmpty())
+                && mLastThread != null && !mLastThread.isEmpty()) {
+            mTargetThreadId = mLastThread;
+            mScrollRestoreThread = mLastThread;
+            App.log("RESUME: ultimo thread " + mLastThread);
+        }
         mErrorActive = false;
         mScrollY = 0;
         creditsPanel.setVisibility(View.GONE);
@@ -800,18 +985,15 @@ public class MainActivity extends Activity {
         logPanel.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
         updateBar();
-        // Avvio (processo fresco, app killata): parte sempre dalla pagina base
-        // (nuova chat), non dall'ultimo thread visitato. Se l'app era solo in
-        // secondo piano il processo e' ancora vivo e onResume la mantiene sulla
-        // chat corrente senza riaprire nulla.
+        // Se l'app era solo in secondo piano il processo e' ancora vivo e
+        // onResume la mantiene sulla chat corrente senza riaprire nulla.
         webView.loadUrl(currentUrl);
         // v2: all'avvio verifica se su GitHub c'è una release più recente.
         checkForNewVersion();
     }
 
-    // URL di avvio: sempre la pagina base (nuova chat). L'ultimo thread
-    // visitato non guida piu' l'avvio: app killata -> pagina base, app in
-    // secondo piano -> onResume mantiene la chat corrente.
+    // URL di avvio: la pagina base; se nei prefs c'e' l'ultimo thread visitato
+    // (mLastThread) l'avvio lo riprende via mTargetThreadId (vedi connect()).
     private String startupUrl() {
         return currentUrl;
     }
@@ -1333,6 +1515,17 @@ public class MainActivity extends Activity {
         mWasSuspended = true;
         mSuspendTs = System.currentTimeMillis();
         App.log("onPause (secondo piano)");
+        // Salvo la posizione di scroll del thread corrente: serve a
+        // "riprendere da dove eri" all'avvio successivo (processo killato).
+        try {
+            String tid = currentThreadId();
+            if (tid != null && !tid.isEmpty() && mScrollY > 0) {
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putLong("scroll_" + tid, (long) mScrollY).apply();
+            }
+        } catch (Exception e) {
+            // ignora
+        }
         if (isRecentGen()) {
             Intent gi = new Intent(this, GenService.class);
             try {
@@ -1600,6 +1793,20 @@ public class MainActivity extends Activity {
         if (mRunPollThread != null) mRunPollThread.interrupt();
     }
 
+    // Il run nell'array e' "mio" se contiene l'id catturato dal polling
+    // eventi di questa app (mMyRunId): vale anche oltre la finestra di 10 min
+    // di isRecentGen(), cosi un run lungo partito da qui non diventa
+    // "cross-client" con banner e blocco invio.
+    private boolean isMyRun(org.json.JSONArray runs) {
+        String id = mMyRunId;
+        if (id == null || id.isEmpty()) return false;
+        for (int i = 0; i < runs.length(); i++) {
+            org.json.JSONObject o = runs.optJSONObject(i);
+            if (o != null && id.equals(o.optString("id"))) return true;
+        }
+        return false;
+    }
+
     private void pollActiveRuns() {
         // mPageUrl, non webView.getUrl(): questo gira su un thread di
         // background e gli accessi WebView fuori dal thread UI lancia.
@@ -1642,10 +1849,11 @@ public class MainActivity extends Activity {
             org.json.JSONArray runs = j.optJSONArray("runs");
             final boolean active = runs != null && runs.length() > 0;
             if (active) {
-                if (isRecentGen()) {
-                    // Run avviato da questo telefono: il UI di Studio lo mostra
-                    // gia' in corso, niente blocco: l'input resta libero e i
-                    // messaggi si mettono in coda come al solito.
+                if (isMyRun(runs) || isRecentGen()) {
+                    // Run avviato da questo telefono (id == mMyRunId oppure
+                    // partenza recente): il UI di Studio lo mostra gia' in
+                    // corso, niente blocco: l'input resta libero e i messaggi
+                    // si mettono in coda come al solito.
                     if (mRunActive) {
                         mRunActive = false;
                         mSawActiveThread = "";
@@ -1676,34 +1884,58 @@ public class MainActivity extends Activity {
                         }
                     });
                 }
-            } else if (mRunActive && !tid.equals(mSawActiveThread)) {
-                // Cambio di thread con un run attivo in un altro: azzero banner
-                // e lock, senza resync (il run non riguarda questa chat).
-                mRunActive = false;
-                mSawActiveThread = "";
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        setGenBanner(false);
-                        lockComposer(false);
+            } else {
+                // Nessun run attivo. Se l'id del "run mio" era salvato, il run
+                // e' appena finito: lo azzero (conta solo mentre e' ancora
+                // attivo, per riconoscerlo come mio nel poll /active).
+                final boolean wasMyRun = mMyRunId != null && !mMyRunId.isEmpty();
+                if (wasMyRun) {
+                    mMyRunId = null;
+                    getSharedPreferences(PREFS, MODE_PRIVATE)
+                            .edit().remove("my_run_id").apply();
+                }
+                if (mRunActive && !tid.equals(mSawActiveThread)) {
+                    // Cambio di thread con un run attivo in un altro: azzero
+                    // banner e lock, senza resync (il run non riguarda questa chat).
+                    mRunActive = false;
+                    mSawActiveThread = "";
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            setGenBanner(false);
+                            lockComposer(false);
+                        }
+                    });
+                } else if (mRunActive) {
+                    // Run finito nel thread corrente: sblocco. Se era un run
+                    // MIO (partito da questa app) Studio ha gia' streamato la
+                    // risposta in pagina: niente resync. Se era partito da un
+                    // altro client (Studio non l'ha mai "visto"),
+                    // ri-sincronizzo la chat dal server.
+                    mRunActive = false;
+                    mSawActiveThread = "";
+                    if (wasMyRun) {
+                        App.log("RUN-POLL: mio run finito, niente resync");
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                setGenBanner(false);
+                                lockComposer(false);
+                            }
+                        });
+                    } else {
+                        App.log("RUN-POLL: run finito, resync");
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                setGenBanner(false);
+                                lockComposer(false);
+                                String u2 = webView.getUrl();
+                                if (u2 != null && u2.contains(tid) && !isRecentGen()) genFinitaResync();
+                            }
+                        });
                     }
-                });
-            } else if (mRunActive) {
-                // Run finito nel thread corrente: sblocco e, se il run non era
-                // partito da questa app (quindi Studio non lo ha mai "visto"),
-                // ri-sincronizzo la chat dal server.
-                mRunActive = false;
-                mSawActiveThread = "";
-                App.log("RUN-POLL: run finito, resync");
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        setGenBanner(false);
-                        lockComposer(false);
-                        String u2 = webView.getUrl();
-                        if (u2 != null && u2.contains(tid) && !isRecentGen()) genFinitaResync();
-                    }
-                });
+                }
             }
         } catch (Exception e) {
             App.log("RUN-POLL errore: " + e.getMessage());
@@ -2251,6 +2483,19 @@ public class MainActivity extends Activity {
                 });
             }
         }
+
+        // v2.5: l'SPA non mette l'id della chat nuova nell'URL (resta
+        // ?new=<nonce>), quindi il hook su fetch nel bridge manda qui l'id
+        // letto dalla risposta di POST /api/chat/threads: cosi "Torna alla
+        // chat" riprende la chat nuova come ultima chat attiva.
+        @JavascriptInterface
+        public void reportNewThread(String id) {
+            if (id == null || id.isEmpty()) return;
+            App.log("NEW-THREAD: " + id);
+            mLastThread = id;
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString("last_thread", id).apply();
+        }
     }
 
     private void injectUrlReporter() {
@@ -2262,8 +2507,144 @@ public class MainActivity extends Activity {
                 "history.pushState = function(){ var r = op.apply(this, arguments); rp(); return r; };" +
                 "history.replaceState = function(){ var r = orp.apply(this, arguments); rp(); return r; };" +
                 "window.addEventListener('popstate', rp);" +
+                // v2.5: l'SPA crea la chat nuova con POST /api/chat/threads e
+                // l'URL resta ?new=<nonce> (l'id del thread non finisce mai
+                // nell'URL). Hook su fetch: se la POST va a buon fine, leggo
+                // l'id dalla risposta e lo passo al bridge, cosi mLastThread
+                // segue la chat nuova anche senza ?thread= nell'URL.
+                "var of = window.fetch;" +
+                "if (typeof of === 'function') {" +
+                "  window.fetch = function(u, o) {" +
+                "    try {" +
+                "      var s = typeof u === 'string' ? u : (u && u.url) || '';" +
+                "      var q = s.indexOf('?');" +
+                "      if (q >= 0) s = s.substring(0, q);" +
+                "      var m = o && typeof o.method === 'string' ? o.method.toUpperCase() : 'GET';" +
+                "      if (m === 'POST' && s.length >= 17 && s.substring(s.length - 17) === '/api/chat/threads') {" +
+                "        var p = of.apply(this, arguments);" +
+                "        p.then(function(r) {" +
+                "          if (r && r.ok) {" +
+                "            r.clone().json().then(function(d) {" +
+                "              if (d && typeof d.id === 'string') {" +
+                "                try { UnslothBridge.reportNewThread(d.id); } catch(e) {}" +
+                "              }" +
+                "            }).catch(function() {});" +
+                "          }" +
+                "        }).catch(function() {});" +
+                "        return p;" +
+                "      }" +
+                "    } catch(e) {}" +
+                "    return of.apply(this, arguments);" +
+                "  };" +
+                "}" +
                 "})();";
         webView.evaluateJavascript(js, null);
+    }
+
+    // Nasconde il toast "Model loaded with a warning" (toast sonner con
+    // id logico model-load-warning) che l'SPA mostra a ogni load di modello
+    // con memory_warning. L'elemento <li data-sonner-toast> nel DOM non
+    // porta l'id (verificato nel bundle dist), quindi non basta un
+    // selettore CSS puro: inietto un observer che riconosce il toast dal
+    // testo del titolo e lo tiene display:none (inline !important,
+    // riapplicato a ogni re-render di React che tocca style/class).
+    private void injectWarningHider() {
+        // L'observer va su document.documentElement, che esiste in
+        // qualsiasi momento: niente attesa di readyState (in pratica
+        // non si raggiungeva mai, il self-test tornava sempre
+        // no-result). Se il documento viene sostituito l'observer
+        // muore, ma reinietto su onPageStarted/onPageCommitVisible/
+        // onPageFinished e la guardia window.__unslothToastGuard evita
+        // i doppi nel stesso documento.
+        // Attenzione: a onPageStarted/onPageCommitVisible il documento
+        // esiste ma non ha ancora la radice <html>
+        // (document.documentElement e' null): observe() getta
+        // "parameter 1 is not of type 'Node'". La guardia
+        // __unslothToastGuard si mette solo quando l'observer viene
+        // installato davvero; se la radice non c'e' la reiniezione a
+        // onPageFinished (documento completo) installa l'observer.
+        String js = "(function(){" +
+                "if (window.__unslothToastGuard) return 'guard';" +
+                "try {" +
+                "  UnslothBridge.appLog('TOAST-HIDER: probe ' + document.readyState + ' | ' + location.href.slice(0, 80));" +
+                "var T = 'loaded with a warning';" +
+                "function isTarget(el){" +
+                "  if (!el || el.nodeType !== 1 || !el.querySelector) return false;" +
+                "  var t = el.querySelector('[data-title]');" +
+                "  return !!(t && t.textContent.toLowerCase().indexOf(T) !== -1);" +
+                "}" +
+                "function hide(el){" +
+                "  el.style.setProperty('display', 'none', 'important');" +
+                "  try { UnslothBridge.appLog('TOAST-HIDER: toast nascosto (display:none)'); } catch(e) {}" +
+                "}" +
+                "function scan(){" +
+                "  var its = document.querySelectorAll('li[data-sonner-toast]');" +
+                "  for (var i = 0; i < its.length; i++) if (isTarget(its[i])) hide(its[i]);" +
+                "}" +
+                "if (!document.documentElement) return;" +
+                "new MutationObserver(function(ms){" +
+                "  for (var i = 0; i < ms.length; i++) {" +
+                "    var m = ms[i];" +
+                "    if (m.type === 'childList') {" +
+                "      var ns = m.addedNodes;" +
+                "      for (var j = 0; j < ns.length; j++) {" +
+                "        var el = ns[j];" +
+                "        if (!el || el.nodeType !== 1) continue;" +
+                "        if (el.matches && el.matches('li[data-sonner-toast]')) {" +
+                "          if (isTarget(el)) hide(el);" +
+                "        } else if (el.querySelectorAll) {" +
+                "          var its = el.querySelectorAll('li[data-sonner-toast]');" +
+                "          for (var k = 0; k < its.length; k++) if (isTarget(its[k])) hide(its[k]);" +
+                "        }" +
+                "      }" +
+                "    } else if (m.type === 'attributes' && m.target && m.target.nodeType === 1" +
+                "      && m.target.matches && m.target.matches('li[data-sonner-toast]')) {" +
+                "      if (isTarget(m.target)) hide(m.target);" +
+                "    }" +
+                "  }" +
+                "}).observe(document.documentElement, {childList: true, subtree: true," +
+                "  attributes: true, attributeFilter: ['style', 'class']});" +
+                "window.__unslothToastGuard = true;" +
+                "scan();" +
+                // Self-test sincrone: creo un toast finto con la stessa
+                // struttura che genera sonner, lo passo a scan(), leggo
+                // display e lo tolgo. Il risultato ('mo-ok | display=...')
+                // resta in window.__hiderSelfTestResult: lo leggo in Java
+                // dopo 3 s. Se il blocco getta un'eccezione, lo loggo
+                // con il messaggio e metto 'errore: ...' nel result.
+                // timer-ok verifica che i setTimeout JS scattino.
+                "var fake = document.createElement('li');" +
+                "fake.setAttribute('data-sonner-toast', '');" +
+                "var dt = document.createElement('div');" +
+                "dt.setAttribute('data-title', '');" +
+                "dt.textContent = 'Model loaded with a warning';" +
+                "fake.appendChild(dt);" +
+                "document.documentElement.appendChild(fake);" +
+                "scan();" +
+                "var d = '';" +
+                "try { d = getComputedStyle(fake).display; } catch(e) { d = 'err'; }" +
+                "if (fake.parentNode) fake.parentNode.removeChild(fake);" +
+                "try { window.__hiderSelfTestResult = 'mo-ok | display=' + d; } catch(e) {}" +
+                "try { UnslothBridge.appLog('TOAST-HIDER: self-test ok display=' + d); } catch(e) {}" +
+                "setTimeout(function(){" +
+                "  try { UnslothBridge.appLog('TOAST-HIDER: timer-ok'); } catch(e) {}" +
+                "}, 200);" +
+                "} catch(e) {" +
+                "  try { window.__hiderSelfTestResult = 'errore: ' + (e && e.message); } catch(e2) {}" +
+                "  try { UnslothBridge.appLog('TOAST-HIDER: ERRORE ' + (e && e.message)); } catch(e2) {}" +
+                "}" +
+                "})();";
+        webView.evaluateJavascript(js, value -> {
+            if (value != null) App.log("TOAST-HIDER: iniettato (" + value + ")");
+        });
+        // Poll dopo 3 s: se la pagina e' ancora viva leggo l'esito del
+        // self-test dalla window var e lo loggo (doppia sicurezza rispetto
+        // al log da JS, che potrebbe andare perso con un ricaricamento).
+        new android.os.Handler(getMainLooper()).postDelayed(() ->
+                webView.evaluateJavascript(
+                        "window.__hiderSelfTestResult || 'no-result (pagina ricaricata?)'",
+                        value -> App.log("TOAST-HIDER: self-test result=" + value)),
+                3000);
     }
 
     private String nameFromDisposition(String disp) {
