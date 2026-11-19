@@ -1,7 +1,7 @@
 # Unsloth Android app
 
 <p align="center">
-  <img src="img/unsloth_logo.png" alt="Unsloth" width="120" /> &nbsp;·&nbsp; <img src="img/simpleweb_logo.png" alt="SimpleWeb" height="72" />
+  <img src="img/simpleweb_logo.png" alt="SimpleWeb" height="72" /> &nbsp;·&nbsp; <img src="img/unsloth_logo.png" alt="Unsloth" height="72" />
 </p>
 
 <p align="center">
