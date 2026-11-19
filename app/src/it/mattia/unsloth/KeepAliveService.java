@@ -25,9 +25,33 @@ public class KeepAliveService extends Service {
                 android.content.SharedPreferences p = getSharedPreferences("unsloth", MODE_PRIVATE);
                 String host = p.getString("host", "");
                 String port = p.getString("port", "8888");
+                if (host.isEmpty()) {
+                    App.log("KEEPALIVE: host assente, salto");
+                    stopSelf();
+                    return;
+                }
+                // v2.8: la pagina e la fonte unica del refresh token (single-use,
+                // rotazione monouso). Se la pagina non e viva (app chiusa) NON
+                // ruoto: ruotare consumerebbe il token che la SPA tiene ancora
+                // in localStorage e al prossimo avvio cadrebbe sul login.
+                // Senza nessuno che lo usa, il token della SPA resta valido per
+                // 7 giorni e la SPA si riparte da sola al prossimo avvio.
+                if (!MainActivity.isPageAlive()) {
+                    App.log("KEEPALIVE: pagina non viva, salto (token della SPA resta vivo)");
+                    stopSelf();
+                    return;
+                }
+                // Leggo il token fresco dal localStorage della pagina: e la
+                // copia piu' recente (l'SPA lo ruota al suo 401, i prefs si
+                // sincronizzano solo al prossimo load).
                 String rt = p.getString("auth_refresh", "");
-                if (host.isEmpty() || rt.isEmpty()) {
-                    App.log("KEEPALIVE: host o refresh token assente, salto");
+                String pageTok = MainActivity.readPageTokensBlocking(8000L);
+                if (!pageTok.isEmpty()) {
+                    String prt = pageTok.substring(pageTok.indexOf('|') + 1);
+                    if (!prt.equals(rt)) rt = prt;
+                }
+                if (rt.isEmpty()) {
+                    App.log("KEEPALIVE: refresh token assente, salto");
                     stopSelf();
                     return;
                 }
@@ -54,6 +78,10 @@ public class KeepAliveService extends Service {
                     if (!at.isEmpty() && !nrt.isEmpty()) {
                         p.edit().putString("auth_access", at).putString("auth_refresh", nrt)
                                 .putLong("auth_synced_ts", System.currentTimeMillis()).apply();
+                        // v2.8: riscrivo i token freschi nella pagina,
+                        // altrimenti l'SPA resterebbe con il refresh token
+                        // appena consumato (401 al suo prossimo refresh).
+                        MainActivity.injectAuthTokensToPage(at, nrt);
                         App.log("KEEPALIVE: token rinnovato ok");
                     } else {
                         App.log("KEEPALIVE: 200 ma risposta senza token");

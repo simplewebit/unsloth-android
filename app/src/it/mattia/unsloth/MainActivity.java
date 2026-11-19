@@ -74,6 +74,10 @@ public class MainActivity extends Activity {
     private DrawerLayout drawerLayout;
     private LinearLayout bar;
     private ScrollTrackingWebView webView;
+    // v2.8: riferimento statico alla WebView, cosi i service (KeepAlive,
+    // GenService) possono leggere/iniettare i token nella pagina senza
+    // passare per l'Activity.
+    private static volatile java.lang.ref.WeakReference<ScrollTrackingWebView> sWebView = null;
     private EditText editHost;
     private EditText editPort;
     private ScrollView optionsPanel;
@@ -186,6 +190,27 @@ public class MainActivity extends Activity {
     private Thread mRunPollThread;
     private Button mBtnRetry;
 
+    // v2.7: mirroring di un run partito da un altro client. Il run-poll lo
+    // rileva su /chat-runs/active e qui l'app apre un SSE nativo
+    // (POST /chat-runs/<id>/events?after=N, stesso pattern di GenService):
+    // 1) tiene il run vivo: finche' l'app e' iscritta Studio lo conta
+    //    "attento" e non ferma un run stopWhenUnattended;
+    // 2) streamma i chunk nel banner: la riga sotto del banner mostra la
+    //    preview del testo generato sul PC (stesso stream che Studio
+    //    mostrerebbe nella web view).
+    // A fine run il run-poll chiude lo stream e fa il resync esistente.
+    // Finche' il run esterno e' attivo, il box errore "interrupted" della SPA
+    // (con il Retry inutile, che darebbe 409) resta nascosto: la SPA lo
+    // mostra perche' il run adottato dalla web view non viene registrato nel
+    // set activeRuns dell'adapter (K_/Vu non chiamati nel percorso
+    // wake/merge). hideRetryBox lo nasconde con uno stile nel DOM.
+    private volatile String mMirrorRunId = null;
+    private volatile boolean mMirrorStop = true;
+    private volatile long mMirrorAfter = 0;
+    private Thread mMirrorThread;
+    private final StringBuilder mMirrorText = new StringBuilder();
+    private volatile long mLastMirrorUiMs = 0;
+
     // Download blob: un solo job alla volta, chunk base64 dal WebView
     private static final int BLOB_CHUNK = 2 * 1024 * 1024;
     private String mBlobName;
@@ -195,7 +220,7 @@ public class MainActivity extends Activity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "2.6";
+    static final String APP_VERSION = "2.8";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -344,6 +369,7 @@ public class MainActivity extends Activity {
             drawerLayout = findViewById(R.id.drawer_layout);
             bar = findViewById(R.id.bar);
             webView = findViewById(R.id.webview);
+            sWebView = new java.lang.ref.WeakReference<>(webView);
             App.log("MainActivity.onCreate: webView trovato");
 
             // File picker per input[type=file] (tasto allega della chat):
@@ -1163,6 +1189,70 @@ public class MainActivity extends Activity {
         }
     }
 
+    // v2.8: la pagina WebView e la fonte unica dei token di auth. Il refresh
+    // token e single-use (rotazione monouso): se un actor nativo ruota il
+    // token senza riscriverlo nella pagina, la SPA resta con la copia vecchia
+    // e al suo prossimo refresh ottiene 401 e cade su /login. Questi helper
+    // permettono ai service di leggere/iniettare i token direttamente nella
+    // pagina, tenendo le due copie sempre in fase.
+    public static ScrollTrackingWebView peekWebView() {
+        java.lang.ref.WeakReference<ScrollTrackingWebView> r = sWebView;
+        return r == null ? null : r.get();
+    }
+
+    public static boolean isPageAlive() {
+        return peekWebView() != null;
+    }
+
+    // Scrive i token freschi nel localStorage della pagina. Se la pagina non
+    // e viva lo salto: la SPA tiene la sua copia in localStorage e al prossimo
+    // avvio riparte da li senza re-login.
+    public static void injectAuthTokensToPage(final String at, final String rt) {
+        if (at == null || rt == null || at.isEmpty() || rt.isEmpty()) return;
+        final String js = "(function(){try{localStorage.setItem('unsloth_auth_token','" + at + "');" +
+                "localStorage.setItem('unsloth_auth_refresh_token','" + rt + "');}catch(e){}})()";
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                ScrollTrackingWebView w = peekWebView();
+                if (w == null) { App.log("AUTH-INJECT: pagina non viva, salto"); return; }
+                w.evaluateJavascript(js, null);
+            }
+        });
+    }
+
+    // Legge i token dal localStorage della pagina in modo bloccante
+    // (timeout ms). Ritorna "t|r" oppure "" se la pagina non e viva o non ha
+    // token. Va chiamato da un thread di background.
+    public static String readPageTokensBlocking(long timeoutMs) {
+        ScrollTrackingWebView w = peekWebView();
+        if (w == null) return "";
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        final String[] out = new String[2];
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                final ScrollTrackingWebView w2 = peekWebView();
+                if (w2 == null) { latch.countDown(); return; }
+                w2.evaluateJavascript(JS_READ_TOKENS, value -> {
+                    try {
+                        org.json.JSONObject j = new org.json.JSONObject(value == null ? "{}" : value);
+                        out[0] = j.optString("t");
+                        out[1] = j.optString("r");
+                    } catch (Exception ignored) {
+                    }
+                    latch.countDown();
+                });
+            }
+        });
+        try {
+            latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) {
+        }
+        if (out[0] == null || out[1] == null) return "";
+        return out[0] + "|" + out[1];
+    }
+
     interface TokenPairCallback { void onTokens(String at, String rt); }
 
     // Rinnova il token: prova prima il refresh token della web view, poi quello
@@ -1872,15 +1962,32 @@ public class MainActivity extends Activity {
                         mRunActive = true;
                         App.log("RUN-POLL: run cross-client attivo nel thread " + tid);
                     }
+                    // v2.7: mirroring. Apri l'SSE nativo del run esterno:
+                    // streamma i chunk nel banner e tiene il run vivo
+                    // (follower "attento", stopWhenUnattended). Se e' un run
+                    // diverso da quello gia' aperto, riparte da zero:
+                    // cursore azzerato e testo azzerato.
+                    final String extId = runs.getJSONObject(0).optString("id", "");
+                    if (!extId.isEmpty() && !extId.equals(mMirrorRunId)) {
+                        mMirrorAfter = 0;
+                        synchronized (mMirrorText) { mMirrorText.setLength(0); }
+                        mMirrorRunId = extId;
+                        App.log("MIRROR: SSE del run esterno " + extId);
+                        startMirrorSse(base, extId);
+                    }
                     // Banner e lock a ogni tick (idempotenti): se la prima
                     // iniezione fallisce (pagina ancora in caricamento, JS
                     // null) i tick successivi la ripetono; se Studio
                     // re-render elimina il div, il tick dopo lo reinietta.
+                    // hideRetryBox: finche' il run esterno e' attivo, nasconde
+                    // il box errore "interrupted" della SPA (Retry inutile,
+                    // darebbe 409 sul run in corso).
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
                             setGenBanner(true);
                             lockComposer(true);
+                            hideRetryBox(true);
                         }
                     });
                 }
@@ -1896,14 +2003,17 @@ public class MainActivity extends Activity {
                 }
                 if (mRunActive && !tid.equals(mSawActiveThread)) {
                     // Cambio di thread con un run attivo in un altro: azzero
-                    // banner e lock, senza resync (il run non riguarda questa chat).
+                    // banner, lock e mirroring, senza resync (il run non
+                    // riguarda questa chat).
                     mRunActive = false;
                     mSawActiveThread = "";
+                    stopMirror();
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
                             setGenBanner(false);
                             lockComposer(false);
+                            hideRetryBox(false);
                         }
                     });
                 } else if (mRunActive) {
@@ -1914,6 +2024,7 @@ public class MainActivity extends Activity {
                     // ri-sincronizzo la chat dal server.
                     mRunActive = false;
                     mSawActiveThread = "";
+                    stopMirror();
                     if (wasMyRun) {
                         App.log("RUN-POLL: mio run finito, niente resync");
                         runOnUiThread(new Runnable() {
@@ -1921,6 +2032,7 @@ public class MainActivity extends Activity {
                             public void run() {
                                 setGenBanner(false);
                                 lockComposer(false);
+                                hideRetryBox(false);
                             }
                         });
                     } else {
@@ -1930,6 +2042,7 @@ public class MainActivity extends Activity {
                             public void run() {
                                 setGenBanner(false);
                                 lockComposer(false);
+                                hideRetryBox(false);
                                 String u2 = webView.getUrl();
                                 if (u2 != null && u2.contains(tid) && !isRecentGen()) genFinitaResync();
                             }
@@ -1950,6 +2063,14 @@ public class MainActivity extends Activity {
         try {
             SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
             String rt = p.getString("auth_refresh", "");
+            // v2.8: la pagina potrebbe avere un refresh token piu' fresco
+            // (ruotato dall'SPA dopo l'ultimo sync nei prefs): se c'e', uso
+            // quello, altrimenti il refresh qui consumerebbe il token sbagliato.
+            String pageTok = readPageTokensBlocking(5000L);
+            if (!pageTok.isEmpty()) {
+                String prt = pageTok.substring(pageTok.indexOf('|') + 1);
+                if (!prt.equals(rt)) rt = prt;
+            }
             if (rt.isEmpty()) return;
             java.net.HttpURLConnection c = (java.net.HttpURLConnection)
                     new java.net.URL(base + "/api/auth/refresh").openConnection();
@@ -1974,6 +2095,10 @@ public class MainActivity extends Activity {
             if (at.isEmpty()) return;
             p.edit().putString("auth_access", at).putString("auth_refresh", nrt)
                     .putLong("auth_synced_ts", System.currentTimeMillis()).apply();
+            // v2.8: riscrivo i token freschi nella pagina, altrimenti l'SPA
+            // resterebbe con il refresh token appena consumato (401 al suo
+            // prossimo refresh e caduta su /login).
+            injectAuthTokensToPage(at, nrt);
             App.log("RUN-POLL: token rinnovato");
         } catch (Exception e) {
             App.log("RUN-POLL: refresh errore " + e.getMessage());
@@ -2000,7 +2125,20 @@ public class MainActivity extends Activity {
             String js;
             if (show) {
                 String main = jsEsc(getString(R.string.gen_main));
+                // v2.7: se il banner mostra il mirroring di un run esterno,
+                // la riga sotto e' la preview del testo generato (ultimi 220
+                // caratteri, ridotta a una riga), non "Attendi".
                 String sub = jsEsc(getString(R.string.gen_wait));
+                if (mMirrorRunId != null) {
+                    synchronized (mMirrorText) {
+                        int len = mMirrorText.length();
+                        if (len > 0) {
+                            String t = mMirrorText.substring(len > 220 ? len - 220 : 0, len);
+                            t = t.replace("\n", " ").replace("\r", " ");
+                            sub = jsEsc(t);
+                        }
+                    }
+                }
                 js = "(function(){"
                         + "if(!window.__unslothGenStyle){"
                         + "var st=document.createElement('style');"
@@ -2115,6 +2253,227 @@ public class MainActivity extends Activity {
             webView.evaluateJavascript(js, null);
         } catch (Exception e) {
             App.log("GUARD errore: " + e.getMessage());
+        }
+    }
+
+    // v2.7: chiude il mirroring: ferma il thread SSE, azzera l'id del run
+    // e svuota il testo. Idempotente: viene chiamato anche quando non c'e'
+    // niente da chiudere (run "mio", cambio di thread), lascia stato pulito.
+    private void stopMirror() {
+        mMirrorStop = true;
+        mMirrorRunId = null;
+        synchronized (mMirrorText) { mMirrorText.setLength(0); }
+        if (mMirrorThread != null) {
+            mMirrorThread.interrupt();
+            mMirrorThread = null;
+        }
+    }
+
+    // v2.7: SSE nativo del run esterno (POST /chat-runs/<id>/events?after=N,
+    // stesso pattern di GenService.openSse). Finche' e' aperto, Studio conta
+    // l'app come follower "attento" e non ferma un run stopWhenUnattended.
+    // I chunk vengono appesi a mMirrorText (solo preview: si tiene la coda,
+    // tetto 200k caratteri) e updateMirrorPreview li sposta nella riga sotto
+    // del banner ogni 400 ms.
+    // Riaperture: 401 -> rinnovo token e riprovo; stream caduto -> riapero
+    // dall'ultimo cursore (linee id: delle frame), niente replay dei chunk
+    // gia' ricevuti; stream chiuso pulito -> il backend lo chiude solo
+    // quando il run e' terminale (o l'id e' sparito): segno la fine qui, il
+    // poller fa il resync e le notifiche come d'abitudine.
+    private void startMirrorSse(final String base, final String runId) {
+        if (mMirrorThread != null) {
+            mMirrorStop = true;
+            mMirrorThread.interrupt();
+            mMirrorThread = null;
+        }
+        mMirrorStop = false;
+        mMirrorAfter = 0;
+        synchronized (mMirrorText) { mMirrorText.setLength(0); }
+        mLastMirrorUiMs = 0;
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (!mMirrorStop && runId.equals(mMirrorRunId)) {
+                    long after = mMirrorAfter;
+                    java.net.HttpURLConnection conn = null;
+                    boolean failed = false;
+                    try {
+                        String tok = getSharedPreferences(PREFS, MODE_PRIVATE).getString("auth_access", "");
+                        if (tok.isEmpty()) {
+                            App.log("MIRROR: token assente, attendo");
+                            Thread.sleep(3000);
+                            continue;
+                        }
+                        java.net.URL u = new java.net.URL(base
+                                + "/api/inference/chat-runs/" + runId + "/events?after=" + after);
+                        conn = (java.net.HttpURLConnection) u.openConnection();
+                        conn.setRequestMethod("POST");
+                        conn.setRequestProperty("Authorization", "Bearer " + tok);
+                        conn.setRequestProperty("Accept", "text/event-stream");
+                        conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setConnectTimeout(15000);
+                        // Larga: i keep-alive del server arrivano ogni 15s anche
+                        // a vuoto, ma un run lungo non deve farla morire.
+                        conn.setReadTimeout(300000);
+                        conn.setDoOutput(true);
+                        conn.getOutputStream().write("{}".getBytes("UTF-8"));
+                        int code = conn.getResponseCode();
+                        if (code == 401) {
+                            if (System.currentTimeMillis() - mLastAuthRefreshMs > 60 * 1000L) {
+                                mLastAuthRefreshMs = System.currentTimeMillis();
+                                refreshAuthTokens(base);
+                            }
+                            App.log("MIRROR: 401, rinnovo token e riprovo");
+                            Thread.sleep(3000);
+                            continue;
+                        }
+                        if (code != 200) {
+                            App.log("MIRROR: SSE HTTP " + code + ", attendo");
+                            Thread.sleep(3000);
+                            continue;
+                        }
+                        App.log("MIRROR: SSE aperto per " + runId + " (after=" + after + ")");
+                        java.io.BufferedReader r = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(conn.getInputStream(), "UTF-8"));
+                        String line;
+                        while (!mMirrorStop && (line = r.readLine()) != null) {
+                            if (line.startsWith("id:")) {
+                                // Cursore della frame: su riapertura riparto da qui.
+                                try {
+                                    long seq = Long.parseLong(line.substring(3).trim());
+                                    if (seq > mMirrorAfter) mMirrorAfter = seq;
+                                } catch (Exception e) {
+                                }
+                            } else if (line.startsWith("data:")) {
+                                try {
+                                    org.json.JSONObject j = new org.json.JSONObject(line.substring(5).trim());
+                                    String type = j.optString("type", "");
+                                    if ("chunk".equals(type)) {
+                                        org.json.JSONObject payload = j.optJSONObject("payload");
+                                        if (payload != null) {
+                                            org.json.JSONArray choices = payload.optJSONArray("choices");
+                                            if (choices != null && choices.length() > 0) {
+                                                org.json.JSONObject choice = choices.optJSONObject(0);
+                                                if (choice != null) {
+                                                    org.json.JSONObject delta = choice.optJSONObject("delta");
+                                                    if (delta != null) {
+                                                        String content = delta.optString("content", "");
+                                                        if (!content.isEmpty()) {
+                                                            synchronized (mMirrorText) {
+                                                                mMirrorText.append(content);
+                                                                if (mMirrorText.length() > 200000) {
+                                                                    mMirrorText.delete(0, mMirrorText.length() - 200000);
+                                                                }
+                                                            }
+                                                            updateMirrorPreview();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Evento non chunk (done, error, ...): porta il run.
+                                        org.json.JSONObject run = j.optJSONObject("run");
+                                        if (run != null) {
+                                            String status = run.optString("status", "");
+                                            if (status.equals("completed") || status.equals("failed")
+                                                    || status.equals("cancelled") || status.equals("cancelling")) {
+                                                App.log("MIRROR: run " + runId + " terminale (" + status + ")");
+                                                mMirrorStop = true;
+                                                mMirrorRunId = null;
+                                            }
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    // Frame malformata: ignoro
+                                }
+                            }
+                            // Righe keep-alive (" : keep-alive ...") e vuote: niente.
+                        }
+                    } catch (Exception e) {
+                        failed = true;
+                        if (!mMirrorStop) App.log("MIRROR: SSE chiuso (" + e.getMessage() + ")");
+                    } finally {
+                        if (conn != null) {
+                            try { conn.disconnect(); } catch (Exception e) {
+                            }
+                        }
+                    }
+                    if (mMirrorStop || !runId.equals(mMirrorRunId)) return;
+                    if (!failed) {
+                        // Chiusura pulita: il backend chiude lo stream solo
+                        // quando il run e' terminale (o l'id non esiste piu'):
+                        // segno la fine; il poller fa resync e notifica.
+                        App.log("MIRROR: stream terminato, run chiuso");
+                        mMirrorStop = true;
+                        mMirrorRunId = null;
+                        return;
+                    }
+                    // Caduta della connessione: riprovo dall'ultimo cursore.
+                    try { Thread.sleep(1500); } catch (InterruptedException e) { return; }
+                }
+                App.log("MIRROR: thread SSE chiuso (" + runId + ")");
+            }
+        }, "mirror-sse");
+        t.start();
+        mMirrorThread = t;
+    }
+
+    // v2.7: aggiorna la riga sotto del banner con la preview del testo
+    // generato dal run esterno (ultimi ~200 caratteri, una sola riga).
+    // Chiamata dal thread SSE, throttata a 400 ms; il banner viene
+    // reiniettato a ogni tick da setGenBanner, che legge mMirrorText
+    // direttamente, quindi la preview non si perde al re-render.
+    private void updateMirrorPreview() {
+        long now = System.currentTimeMillis();
+        if (now - mLastMirrorUiMs < 400) return;
+        mLastMirrorUiMs = now;
+        final String preview;
+        synchronized (mMirrorText) {
+            int len = mMirrorText.length();
+            if (len == 0) return;
+            preview = mMirrorText.substring(len > 200 ? len - 200 : 0, len)
+                    .replace("\n", " ").replace("\r", " ");
+        }
+        final String js = "(function(){"
+                + "var b=document.getElementById('unsloth-gen-banner');"
+                + "if(!b)return;"
+                + "var s=b.querySelector('.unsloth-gen-sub');"
+                + "if(s)s.textContent=" + jsEsc("'" + preview + "'") + ";"
+                + "})();";
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    webView.evaluateJavascript(js, null);
+                } catch (Exception e) {
+                    App.log("MIRROR: preview errore " + e.getMessage());
+                }
+            }
+        });
+    }
+
+    // v2.7: finche' il run esterno e' attivo, nasconde il box errore
+    // "interrupted" della SPA (con il Retry inutile, che darebbe 409).
+    // Stessa tecnica di iniezione del banner: uno stile iniettato una
+    // volta, una classe su body che il poller toglie/mette a ogni tick
+    // (idempotente). A run finito la classe viene rimossa e il resync
+    // ricarica la pagina, quindi la pagina torna pulita.
+    private void hideRetryBox(final boolean hide) {
+        try {
+            String js = "(function(){"
+                    + "if(!window.__unslothRetryStyle){"
+                    + "var st=document.createElement('style');"
+                    + "st.id='unsloth-retry-hide-style';"
+                    + "st.textContent='body.unsloth-mirror .aui-message-error-root{display:none !important}';"
+                    + "document.head.appendChild(st);window.__unslothRetryStyle=true;}"
+                    + "if(document.body)"
+                    + (hide ? "document.body.classList.add('unsloth-mirror');"
+                             : "document.body.classList.remove('unsloth-mirror');")
+                    + "})();";
+            webView.evaluateJavascript(js, null);
+        } catch (Exception e) {
+            App.log("MIRROR: hideRetryBox errore " + e.getMessage());
         }
     }
 
@@ -2970,10 +3329,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         stopRunPolling();
+        stopMirror();
         if (mDownloadReceiver != null) {
             unregisterReceiver(mDownloadReceiver);
             mDownloadReceiver = null;
         }
+        sWebView = null;
         if (webView != null) {
             webView.destroy();
         }

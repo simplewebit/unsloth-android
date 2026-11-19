@@ -202,6 +202,13 @@ public class GenService extends Service {
         try {
             SharedPreferences p = getSharedPreferences("unsloth", MODE_PRIVATE);
             String rt = p.getString("auth_refresh", "");
+            // v2.8: se la pagina e viva, il suo refresh token e la fonte fresca
+            // (l'SPA pu averlo ruotato dopo l'ultimo sync nei prefs): uso quello.
+            String pageTok = MainActivity.readPageTokensBlocking(5000L);
+            if (!pageTok.isEmpty()) {
+                String prt = pageTok.substring(pageTok.indexOf('|') + 1);
+                if (!prt.equals(rt)) rt = prt;
+            }
             if (rt.isEmpty()) return "";
             java.net.HttpURLConnection c = (java.net.HttpURLConnection)
                     new java.net.URL(prefsHost() + "/api/auth/refresh").openConnection();
@@ -227,6 +234,9 @@ public class GenService extends Service {
             // 8/11: dopo un rinnovo ok il polling e' rimasto senza token valido).
             p.edit().putString("auth_access", at).putString("auth_refresh", nrt)
                     .putLong("auth_synced_ts", System.currentTimeMillis()).apply();
+            // v2.8: riscrivo i token freschi nella pagina, altrimenti l'SPA
+            // resterebbe con il refresh token appena consumato.
+            MainActivity.injectAuthTokensToPage(at, nrt);
             mToken = at;
             App.log("GEN: token rinnovato");
             return at;
