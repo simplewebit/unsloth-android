@@ -23,9 +23,10 @@ public class KeepAliveService extends Service {
         new Thread(() -> {
             try {
                 android.content.SharedPreferences p = getSharedPreferences("unsloth", MODE_PRIVATE);
-                String host = p.getString("host", "");
+                String ip = p.getString("host", "");
+                String ddns = p.getString("ddns", "");
                 String port = p.getString("port", "8888");
-                if (host.isEmpty()) {
+                if (ip.isEmpty() && ddns.isEmpty()) {
                     App.log("KEEPALIVE: host assente, salto");
                     stopSelf();
                     return;
@@ -55,8 +56,8 @@ public class KeepAliveService extends Service {
                     stopSelf();
                     return;
                 }
-                String base = host.startsWith("http://") || host.startsWith("https://")
-                        ? host + (port.isEmpty() ? "" : ":" + port) : "http://" + host + ":" + port;
+                // v2.9: IP prima, DDNS se l'IP non risponde (probe 10 s).
+                String base = App.baseUrl(App.resolveHost(ip, ddns, port), port);
                 java.net.URL u = new java.net.URL(base + "/api/auth/refresh");
                 java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
                 c.setRequestMethod("POST");

@@ -258,10 +258,11 @@ public class GenService extends Service {
         try {
             SharedPreferences p = getSharedPreferences("unsloth", MODE_PRIVATE);
             String h = p.getString("host", "");
+            String d = p.getString("ddns", "");
             String port = p.getString("port", "8888");
-            if (h.isEmpty()) return "";
-            return h.startsWith("http://") || h.startsWith("https://")
-                    ? h + (port.isEmpty() ? "" : ":" + port) : "http://" + h + ":" + port;
+            if (h.isEmpty() && d.isEmpty()) return "";
+            // v2.9: IP prima, DDNS se l'IP non risponde (probe 10 s).
+            return App.baseUrl(App.resolveHost(h, d, port), port);
         } catch (Exception e) {
             return "";
         }

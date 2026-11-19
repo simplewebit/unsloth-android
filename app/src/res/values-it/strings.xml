@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="server_title">Server Unsloth</string>
-    <string name="host_hint">ip o indirizzo ddns</string>
+    <string name="host_hint">indirizzo IP</string>
+    <string name="ddns_hint">indirizzo DDNS</string>
     <string name="port_hint">Porta</string>
     <string name="connect">Salva e connetti</string>
     <string name="retry">Riprova</string>
@@ -54,7 +55,9 @@
 
     <!-- Log panel -->
     <string name="download_log">Scarica log</string>
+    <string name="clear_log">Svuota log</string>
     <string name="no_log_yet">Nessun log ancora.</string>
+    <string name="log_cleared">Log svuotato.</string>
 
     <!-- Misc UI -->
     <string name="error_cannot_reach">Non riesco a raggiungere %1$s\n\n%2$s</string>

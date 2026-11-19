@@ -68,4 +68,47 @@ public class App extends Application {
     public static File getLogFile() {
         return logFile;
     }
+
+    // ===== Connessione IP/DDNS (v2.9) =====
+    // Timeout del probe di raggiungibilita': 10 s (scelta di Mattia: provare
+    // sempre l'IP per primo, poi DDNS se l'IP non risponde).
+    private static final int PROBE_CONNECT_MS = 10000;
+    private static final int PROBE_READ_MS = 5000;
+
+    // Base URL http://host:port da host e port (host gia' con scheme resta).
+    public static String baseUrl(String host, String port) {
+        if (host == null || host.isEmpty()) return "";
+        if (host.startsWith("http://") || host.startsWith("https://")) {
+            return host + (port == null || port.isEmpty() ? "" : ":" + port);
+        }
+        return "http://" + host + ":" + (port == null || port.isEmpty() ? "8888" : port);
+    }
+
+    // Probe host:porta: se il server HTTP risponde entro i timeout, il host
+    // e' raggiungibile. Qualsiasi risposta HTTP conta (anche 404).
+    public static boolean reachable(String host, String port) {
+        try {
+            java.net.HttpURLConnection c =
+                    (java.net.HttpURLConnection) new java.net.URL(baseUrl(host, port)).openConnection();
+            c.setConnectTimeout(PROBE_CONNECT_MS);
+            c.setReadTimeout(PROBE_READ_MS);
+            c.getResponseCode();
+            c.disconnect();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Risolve l'host da usare: prova l'IP per primo (timeout 10 s); se non
+    // risponde prova il DDNS (timeout 10 s). Se nessuno risponde restituisce
+    // l'IP (o il solo DDNS, se e' l'unico compilato): il chiamante lo usa
+    // cosi il collegamento va avanti e l'errore si vede nel WebView.
+    public static String resolveHost(String ip, String ddns, String port) {
+        String h = ip == null ? "" : ip.trim();
+        String d = ddns == null ? "" : ddns.trim();
+        if (!h.isEmpty() && reachable(h, port)) return h;
+        if (!d.isEmpty() && reachable(d, port)) return d;
+        return !h.isEmpty() ? h : d;
+    }
 }

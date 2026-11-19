@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     // passare per l'Activity.
     private static volatile java.lang.ref.WeakReference<ScrollTrackingWebView> sWebView = null;
     private EditText editHost;
+    private EditText editDdns;
     private EditText editPort;
     private ScrollView optionsPanel;
     private Switch switchScreenOn;
@@ -220,7 +221,7 @@ public class MainActivity extends Activity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "2.8";
+    static final String APP_VERSION = "2.9";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -433,6 +434,7 @@ public class MainActivity extends Activity {
             webView.addJavascriptInterface(new JsBridge(), "UnslothBridge");
 
             editHost = findViewById(R.id.edit_host);
+        editDdns = findViewById(R.id.edit_ddns);
             editPort = findViewById(R.id.edit_port);
             // Porta predefinita 8888: se il campo resta vuoto viene usata,
             // e nel campo compare in grigio chiaro come suggerimento.
@@ -482,10 +484,16 @@ public class MainActivity extends Activity {
             btnLogRow = findViewById(R.id.btn_log);
             btnLogRow.setVisibility(logEnabled ? View.VISIBLE : View.GONE);
             switchLog.setChecked(logEnabled);
+            // v2.9: svuota crash.log anche dal pannello Options (stesso handler
+            // del tasto del pannello Log). Lo si vede solo se il Log e' attivo.
+            final View btnClearLogOptions = findViewById(R.id.btn_clear_log_options);
+            btnClearLogOptions.setVisibility(logEnabled ? View.VISIBLE : View.GONE);
+            btnClearLogOptions.setOnClickListener(v -> clearLog());
             switchLog.setOnCheckedChangeListener((v, checked) -> {
                 App.logEnabled = checked;
                 prefs.edit().putBoolean("log_enabled", checked).apply();
                 btnLogRow.setVisibility(checked ? View.VISIBLE : View.GONE);
+                btnClearLogOptions.setVisibility(checked ? View.VISIBLE : View.GONE);
                 App.log("OPZIONI log: " + (checked ? "on" : "off"));
             });
 
@@ -518,6 +526,9 @@ public class MainActivity extends Activity {
             // ACTION_SEND con chooser, cosi il file si allega a email/issue.
             View btnDownloadLog = findViewById(R.id.btn_download_log);
             btnDownloadLog.setOnClickListener(v -> shareLog());
+            // v2.9: svuota crash.log dal pannello Log.
+            View btnClearLog = findViewById(R.id.btn_clear_log);
+            btnClearLog.setOnClickListener(v -> clearLog());
         } catch (Exception e) {
             App.log("MainActivity.onCreate: findViewById FAILED: " + e.getMessage());
             throw e;
@@ -637,11 +648,12 @@ public class MainActivity extends Activity {
             // valido: cosi un indirizzo appena modificato (ma non ancora con
             // "Salva e connetti") viene provato al posto dell'ultimo.
             String h = editHost.getText().toString().trim();
+            String d = editDdns.getText().toString().trim();
             String p = editPort.getText().toString().trim();
             if (p.isEmpty()) p = "8888";
-            if (!h.isEmpty() && p.matches("[0-9]+")
+            if ((!h.isEmpty() || !d.isEmpty()) && p.matches("[0-9]+")
                     && Integer.parseInt(p) >= 1 && Integer.parseInt(p) <= 65535) {
-                saveAndConnect(h, p);
+                saveAndConnect(h, d, p);
             } else if (currentUrl != null) {
                 mErrorActive = false;
                 errorPanel.setVisibility(View.GONE);
@@ -803,13 +815,15 @@ public class MainActivity extends Activity {
         // Run avviato dalla sessione precedente, ancora attivo: riapendolo
         // l'app lo riconosce come "mio" (niente banner cross-client).
         mMyRunId = prefs.getString("my_run_id", null);
-        String host = prefs.getString("host", "");
+        String ip = prefs.getString("host", "");
+        String ddns = prefs.getString("ddns", "");
         String port = prefs.getString("port", "8888");
-        App.log("MainActivity.onCreate: prefs host=" + host + " port=" + port);
-        if (!host.isEmpty()) {
-            editHost.setText(host);
+        App.log("MainActivity.onCreate: prefs ip=" + ip + " ddns=" + ddns + " port=" + port);
+        if (!ip.isEmpty() || !ddns.isEmpty()) {
+            editHost.setText(ip);
+            editDdns.setText(ddns);
             editPort.setText(port);
-            connect(host, port);
+            connect(ip, ddns, port);
         } else {
             openOptions();
         }
@@ -965,31 +979,43 @@ public class MainActivity extends Activity {
     }
 
     private void connectFromSettings() {
-        String host = editHost.getText().toString().trim();
+        String ip = editHost.getText().toString().trim();
+        String ddns = editDdns.getText().toString().trim();
         String port = editPort.getText().toString().trim();
         if (port.isEmpty()) port = "8888";
-        if (host.isEmpty()) return;
+        if (ip.isEmpty() && ddns.isEmpty()) return;
         if (!port.matches("[0-9]+")) return;
         int p = Integer.parseInt(port);
         if (p < 1 || p > 65535) return;
-        saveAndConnect(host, port);
+        saveAndConnect(ip, ddns, port);
     }
 
-    private void saveAndConnect(String host, String port) {
+    private void saveAndConnect(String ip, String ddns, String port) {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString("host", host)
+                .putString("host", ip)
+                .putString("ddns", ddns)
                 .putString("port", port)
                 .apply();
-        connect(host, port);
+        connect(ip, ddns, port);
     }
 
-    private void connect(String host, String port) {
-        String url;
-        if (host.startsWith("http://") || host.startsWith("https://")) {
-            url = host + (port.isEmpty() ? "" : ":" + port);
-        } else {
-            url = "http://" + host + ":" + port;
-        }
+    // v2.9: prova l'IP per primo e, se non risponde entro 10 s, il DDNS.
+    // La risoluzione gira in background (fino a 20 s di probe) e carica
+    // l'host risolto nel thread UI.
+    private void connect(final String ip, final String ddns, final String port) {
+        new Thread(() -> {
+            String host = App.resolveHost(ip, ddns, port);
+            if (host.isEmpty()) {
+                runOnUiThread(this::openOptions);
+                return;
+            }
+            String url = App.baseUrl(host, port);
+            App.log("CONNECT: host risolto " + host + " (ip=" + ip + " ddns=" + ddns + ")");
+            runOnUiThread(() -> connectUrl(url));
+        }).start();
+    }
+
+    private void connectUrl(String url) {
         currentUrl = url;
         mAutoOpenPending = true;
         // Avvio (processo fresco, app killata) o ricollegamento: riprendo
@@ -1770,16 +1796,15 @@ public class MainActivity extends Activity {
             public void run() {
                 try {
                     SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-                    String host = p.getString("host", "");
+                    String ip = p.getString("host", "");
+                    String ddns = p.getString("ddns", "");
                     String port = p.getString("port", "8888");
                     String tok = p.getString("auth_access", "");
-                    if (host.isEmpty() || tok.isEmpty()) {
+                    if ((ip.isEmpty() && ddns.isEmpty()) || tok.isEmpty()) {
                         App.log("SYNC: host o token assenti, salto");
                         return;
                     }
-                    String base = (host.startsWith("http://") || host.startsWith("https://"))
-                            ? host + (port.isEmpty() ? "" : ":" + port)
-                            : "http://" + host + ":" + port;
+                    String base = App.baseUrl(App.resolveHost(ip, ddns, port), port);
                     final String tid = currentThreadId();
                     java.net.URL u = new java.net.URL(base + "/api/inference/chat-runs/active?threadId="
                             + java.net.URLEncoder.encode(tid, "UTF-8"));
@@ -1905,13 +1930,12 @@ public class MainActivity extends Activity {
         final String tid = currentThreadId();
         if (tid.isEmpty()) return;
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String host = p.getString("host", "");
+        String ip = p.getString("host", "");
+        String ddns = p.getString("ddns", "");
         String port = p.getString("port", "8888");
         String tok = p.getString("auth_access", "");
-        if (host.isEmpty() || tok.isEmpty()) return;
-        String base = (host.startsWith("http://") || host.startsWith("https://"))
-                ? host + (port.isEmpty() ? "" : ":" + port)
-                : "http://" + host + ":" + port;
+        if ((ip.isEmpty() && ddns.isEmpty()) || tok.isEmpty()) return;
+        String base = App.baseUrl(App.resolveHost(ip, ddns, port), port);
         java.net.HttpURLConnection c = null;
         try {
             java.net.URL u = new java.net.URL(base + "/api/inference/chat-runs/active?threadId="
@@ -2489,7 +2513,7 @@ public class MainActivity extends Activity {
                 int n;
                 while ((n = fr.read(buf)) != -1) sb.append(buf, 0, n);
                 fr.close();
-                logText.setText(sb.toString());
+                logText.setText(sb.length() == 0 ? getString(R.string.no_log_yet) : sb.toString());
             }
             webView.setVisibility(View.GONE);
             creditsPanel.setVisibility(View.GONE);
@@ -2523,6 +2547,27 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             App.log("SHARE LOG FAILED: " + e.getMessage());
             Toast.makeText(this, getString(R.string.download_error, e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // v2.9: svuota crash.log. Truncatura (non delete): il crash handler
+    // riapre il file in append a ogni riga, cosi l'inode resta valido e il
+    // successivo App.log/crash ricrea le righe da zero. La conferma dello
+    // svuotamento e' un toast (nessuna riga di marca nel file).
+    private void clearLog() {
+        try {
+            File f = App.getLogFile();
+            if (f == null || !f.exists()) {
+                Toast.makeText(this, getString(R.string.no_log_yet), Toast.LENGTH_LONG).show();
+                return;
+            }
+            java.io.FileWriter fw = new java.io.FileWriter(f, false);
+            fw.close();
+            Toast.makeText(this, getString(R.string.log_cleared), Toast.LENGTH_LONG).show();
+            // Ricarica il pannello solo se e' aperto: da Options resto dove sono.
+            if (logPanel.getVisibility() == View.VISIBLE) showLog();
+        } catch (Exception e) {
+            App.log("CLEAR LOG FAILED: " + e.getMessage());
         }
     }
 

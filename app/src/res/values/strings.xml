@@ -2,7 +2,8 @@
 <resources>
     <string name="app_name">Unsloth</string>
     <string name="server_title">Unsloth Server</string>
-    <string name="host_hint">IP or DDNS address</string>
+    <string name="host_hint">IP address</string>
+    <string name="ddns_hint">DDNS address</string>
     <string name="port_hint">Port</string>
     <string name="connect">Save and connect</string>
     <string name="retry">Retry</string>
@@ -55,7 +56,9 @@
 
     <!-- Log panel -->
     <string name="download_log">Download log</string>
+    <string name="clear_log">Clear log</string>
     <string name="no_log_yet">No log yet.</string>
+    <string name="log_cleared">Log cleared.</string>
 
     <!-- Misc UI -->
     <string name="error_cannot_reach">Cannot reach %1$s\n\n%2$s</string>
