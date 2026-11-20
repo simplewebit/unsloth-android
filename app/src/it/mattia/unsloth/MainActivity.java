@@ -3141,10 +3141,16 @@ public class MainActivity extends AppCompatActivity {
         if (webView == null) return;
         String t = (mTheme == null) ? "system" : mTheme;
         String p = (mPalette == null) ? "standard" : mPalette;
+        // Le variabili vanno dichiarate come locali nel JS iniettato: un
+        // identificatore nudo (p) fallisce con ReferenceError nel realm
+        // post-commit, dove non esiste alcun globale p (errore inghiottito
+        // dal catch, pagina mai ricolorata a caldo).
         String js = "(function(){" +
+                "var t = '" + t + "';" +
+                "var p = '" + p + "';" +
                 "try {" +
-                "  localStorage.setItem('theme', '" + t + "');" +
-                "  localStorage.setItem('palette', '" + p + "');" +
+                "  localStorage.setItem('theme', t);" +
+                "  localStorage.setItem('palette', p);" +
                 "  var r = document.documentElement;" +
                 "  if (r) {" +
                 "    if (p === 'standard') {" +
@@ -3153,8 +3159,10 @@ public class MainActivity extends AppCompatActivity {
                 "      r.setAttribute('data-palette', p);" +
                 "    }" +
                 "  }" +
-                "  UnslothBridge.appLog('THEME: " + t + " PALETTE: " + p + "');" +
-                "} catch(e) {}" +
+                "  UnslothBridge.appLog('THEME: ' + t + ' PALETTE: ' + p);" +
+                "} catch(e) {" +
+                "  try { UnslothBridge.appLog('INJECT ERRORE: ' + (e && e.message)); } catch(e2) {}" +
+                "}" +
                 "})()";
         webView.evaluateJavascript(js, null);
     }
