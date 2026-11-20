@@ -247,7 +247,7 @@ public class MainActivity extends AppCompatActivity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "2.9";
+    static final String APP_VERSION = "3.0";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
