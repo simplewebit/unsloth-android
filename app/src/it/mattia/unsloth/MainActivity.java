@@ -701,22 +701,6 @@ public class MainActivity extends AppCompatActivity {
             drawerLayout.closeDrawer(Gravity.START);
             openSpaPage("/settings");
         });
-        View btnRefresh = findViewById(R.id.btn_refresh);
-        btnRefresh.setOnClickListener(v -> {
-            drawerLayout.closeDrawer(Gravity.START);
-            if (currentUrl == null) return;
-            // Home: torna sempre alla pagina iniziale di Unsloth (URL base),
-            // non alla pagina corrente
-            webView.clearCache(true);
-            mErrorActive = false;
-            errorPanel.setVisibility(View.GONE);
-            logPanel.setVisibility(View.GONE);
-            creditsPanel.setVisibility(View.GONE);
-            optionsPanel.setVisibility(View.GONE);
-            webView.setVisibility(View.VISIBLE);
-            updateBar();
-            webView.loadUrl(currentUrl);
-        });
         View btnSettings = findViewById(R.id.btn_settings);
         btnSettings.setOnClickListener(v -> {
             drawerLayout.closeDrawer(Gravity.START);
