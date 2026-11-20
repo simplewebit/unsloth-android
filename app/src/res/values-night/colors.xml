@@ -23,4 +23,6 @@
     <color name="primary_on">#FFFFFF</color>
     <color name="primary_container">#3A3A3A</color>
     <color name="primary_container_on">#FFFFFF</color>
+    <!-- Link cliccabili pagina Credits (v3.0.1: bianchi, visibili su #181818) -->
+    <color name="credit_link">#FFFFFF</color>
 </resources>

@@ -90,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean mScreenOnEnabled = true;
     private LinearLayout errorPanel;
     private TextView errorText;
+    private TextView creditContact;
     private ScrollView logPanel;
     private TextView logText;
     private Switch switchLog;
@@ -506,6 +507,12 @@ public class MainActivity extends AppCompatActivity {
             updateStatus = findViewById(R.id.update_status);
             btnCheckUpdates = findViewById(R.id.btn_check_updates);
             btnCheckUpdates.setOnClickListener(v -> manualUpdateCheck());
+            // v3.0.1: link pagina Credits bianchi in dark (il jar di build non
+            // ha l'attributo android:textLinkColor: lo imposto qui).
+            creditContact = findViewById(R.id.credit_contact);
+            if (creditContact != null) {
+                creditContact.setLinkTextColor(getResources().getColor(R.color.credit_link));
+            }
             App.log("MainActivity.onCreate: view trovati (versione " + APP_VERSION + ")");
 
 
