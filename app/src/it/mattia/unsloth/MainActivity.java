@@ -247,7 +247,7 @@ public class MainActivity extends AppCompatActivity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "3.0";
+    static final String APP_VERSION = "3.0.1";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -2333,7 +2333,7 @@ public class MainActivity extends AppCompatActivity {
                 js = "(function(){"
                         + "if(!window.__unslothGenStyle){"
                         + "var st=document.createElement('style');"
-                        + "st.textContent='#unsloth-gen-banner{position:absolute;z-index:50;"
+                        + "st.textContent='#unsloth-gen-banner{position:absolute;z-index:999999;"
                         + "display:flex;align-items:center;justify-content:center;gap:12px;"
                         + "border-radius:var(--radius-3xl,18px);"
                         + "background:linear-gradient(180deg,#00C98F,#00A371);"
