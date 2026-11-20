@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v3.0: colori del chrome nativo (barra, drawer, banner, pannelli).
+     Tema chiaro = i verdi di sempre. Il dark (values-night/colors.xml)
+     segue lo standard della SPA: superfici #181818, testi #FCFCFC,
+     muted #B0B0B0. -->
+<resources>
+    <!-- Superfici "brand" (barra in alto, drawer, banner update) -->
+    <color name="brand_surface">#00BB7F</color>
+    <!-- Testo sulle superfici brand (bianco in entrambi i temi) -->
+    <color name="text_on_brand">#FFFFFF</color>
+    <!-- Titoli di sezione nei pannelli (verde in chiaro, bianco in dark) -->
+    <color name="section_text">#00BB7F</color>
+    <!-- Testo secondario/muted -->
+    <color name="text_muted">#555555</color>
+    <!-- Descrizioni del drawer -->
+    <color name="drawer_desc">#D6F2E5</color>
+    <!-- Bottone "Download" nel banner update -->
+    <color name="banner_btn_bg">#FFFFFF</color>
+    <color name="banner_btn_text">#00A371</color>
+    <!-- Bottone "Controlla aggiornamenti" (gradiente) -->
+    <color name="gen_box_start">#00C98F</color>
+    <color name="gen_box_end">#00A371</color>
+    <!-- Stati in update_status -->
+    <color name="status_ok">#00A371</color>
+    <color name="status_error">#D32F2F</color>
+    <!-- Fondi e colore primario del tema (bottoni Material3) -->
+    <color name="window_bg">#FFFFFF</color>
+    <color name="primary">#007A57</color>
+    <color name="primary_on">#FFFFFF</color>
+    <color name="primary_container">#14B789</color>
+    <color name="primary_container_on">#003826</color>
+</resources>

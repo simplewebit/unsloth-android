@@ -1,8 +1,10 @@
 package it.mattia.unsloth;
 
 import android.app.Application;
+import android.content.SharedPreferences;
 import android.os.Environment;
 import android.util.Log;
+import androidx.appcompat.app.AppCompatDelegate;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
@@ -13,14 +15,34 @@ import java.util.Date;
 public class App extends Application {
 
     public static final String TAG = "Unsloth";
+    // Nome del file SharedPreferences condiviso (stesso valore di
+    // MainActivity.PREFS).
+    public static final String PREFS_NAME = "unsloth";
     private static File logFile;
     // Opzione "Log" nelle impostazioni: se e' off, App.log non scrive nulla.
     // Il crash handler (writeLine) scrive SEMPRE, anche con il log off.
     public static volatile boolean logEnabled = true;
 
+    // v3.0: tema dell'app ("light"/"dark"/"system"). Deve essere applicato
+    // PRIMA che qualsiasi activity venga creata, cosi la prima window ha
+    // gia' la configuration night giusta (values-night/colors.xml).
+    public static int nightModeFor(String theme) {
+        if ("dark".equals(theme)) return AppCompatDelegate.MODE_NIGHT_YES;
+        if ("light".equals(theme)) return AppCompatDelegate.MODE_NIGHT_NO;
+        return AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM;
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
+        try {
+            String theme = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .getString("theme", "system");
+            AppCompatDelegate.setDefaultNightMode(nightModeFor(theme));
+            Log.i(TAG, "App.onCreate: night mode " + nightModeFor(theme));
+        } catch (Exception e) {
+            Log.e(TAG, "App.onCreate night mode failed", e);
+        }
         try {
             File dir = getExternalFilesDir(null);
             if (dir == null) dir = getFilesDir();

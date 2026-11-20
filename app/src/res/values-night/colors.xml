@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v3.0: variante dark. Valori presi dal dark standard della SPA
+     (index.css, blocco .dark): background #181818, foreground #FCFCFC,
+     card/popover #272727, muted #B0B0B0, success #11B686, danger #EF4444.
+     Gli elementi verdi del chrome diventano scuri con testo bianco
+     (scelta di Mattia, 20/11/2026). -->
+<resources>
+    <color name="brand_surface">#181818</color>
+    <color name="text_on_brand">#FFFFFF</color>
+    <color name="section_text">#FFFFFF</color>
+    <color name="text_muted">#B0B0B0</color>
+    <color name="drawer_desc">#B0B0B0</color>
+    <color name="banner_btn_bg">#303030</color>
+    <color name="banner_btn_text">#FFFFFF</color>
+    <color name="gen_box_start">#272727</color>
+    <color name="gen_box_end">#181818</color>
+    <color name="status_ok">#11B686</color>
+    <color name="status_error">#EF4444</color>
+    <color name="window_bg">#181818</color>
+    <!-- Bottoni Material3: in dark il primario diventa scuro con testo
+         bianco (le superfici colorate "diventano scure"). -->
+    <color name="primary">#272727</color>
+    <color name="primary_on">#FFFFFF</color>
+    <color name="primary_container">#3A3A3A</color>
+    <color name="primary_container_on">#FFFFFF</color>
+</resources>

@@ -14,7 +14,7 @@
         android:id="@+id/bar"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:background="#00BB7F"
+        android:background="@color/brand_surface"
         android:orientation="horizontal">
 
         <ImageView
@@ -32,7 +32,7 @@
             android:layout_weight="1"
             android:gravity="center_vertical"
             android:text="@string/app_name"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_on_brand"
             android:textSize="18sp"
             android:textStyle="bold"/>
 
@@ -66,7 +66,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="top"
-            android:background="#00BB7F"
+            android:background="@color/brand_surface"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="12dp"
@@ -80,7 +80,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_on_brand"
                 android:textSize="13sp"/>
 
             <Button
@@ -91,7 +91,7 @@
                 android:paddingStart="24dp"
                 android:paddingEnd="24dp"
                 android:text="@string/update_download"
-                android:textColor="#00A371"
+                android:textColor="@color/banner_btn_text"
                 android:textStyle="bold"/>
         </LinearLayout>
 
@@ -120,7 +120,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:text="@string/section_connection"
-                    android:textColor="#00BB7F"
+                    android:textColor="@color/section_text"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -180,7 +180,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="28dp"
                     android:text="@string/section_screen"
-                    android:textColor="#00BB7F"
+                    android:textColor="@color/section_text"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -208,7 +208,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
                             android:text="@string/screen_always_on_desc"
-                            android:textColor="#555555"
+                            android:textColor="@color/text_muted"
                             android:textSize="12sp"/>
                     </LinearLayout>
 
@@ -223,7 +223,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="28dp"
                     android:text="@string/section_language"
-                    android:textColor="#00BB7F"
+                    android:textColor="@color/section_text"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -233,12 +233,63 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"/>
 
+                <!-- v3.0: tema (chiaro/scuro/sistema). Vale per il chrome
+                     nativo (tema DayNight) e per la pagina Studio
+                     (localStorage.theme, applicato da theme-boot.js). -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="@string/section_theme"
+                    android:textColor="@color/section_text"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/theme_hint"
+                    android:textColor="@color/text_muted"
+                    android:textSize="12sp"/>
+
+                <Spinner
+                    android:id="@+id/spinner_theme"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"/>
+
+                <!-- v3.0: palette della pagina Studio (localStorage.palette,
+                     applicata da theme-boot.js come data-palette su <html>). -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="@string/section_palette"
+                    android:textColor="@color/section_text"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/palette_hint"
+                    android:textColor="@color/text_muted"
+                    android:textSize="12sp"/>
+
+                <Spinner
+                    android:id="@+id/spinner_palette"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"/>
+
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="28dp"
                     android:text="@string/log_enabled"
-                    android:textColor="#00BB7F"
+                    android:textColor="@color/section_text"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -266,7 +317,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
                             android:text="@string/log_enabled_desc"
-                            android:textColor="#555555"
+                            android:textColor="@color/text_muted"
                             android:textSize="12sp"/>
                     </LinearLayout>
 
@@ -424,7 +475,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="2.9"
-                    android:textColor="#555555"
+                    android:textColor="@color/text_muted"
                     android:textSize="12sp"
                     android:textStyle="italic"/>
 
@@ -437,7 +488,7 @@
                     android:gravity="center"
                     android:paddingStart="24dp"
                     android:paddingEnd="24dp"
-                    android:textColor="#555555"
+                    android:textColor="@color/text_muted"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -450,7 +501,7 @@
                     android:paddingStart="28dp"
                     android:paddingEnd="28dp"
                     android:text="@string/check_updates"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textStyle="bold"/>
             </LinearLayout>
         </ScrollView>
@@ -469,7 +520,7 @@
         android:layout_width="280dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:background="#00BB7F"
+        android:background="@color/brand_surface"
         android:fillViewport="true">
 
         <LinearLayout
@@ -485,7 +536,7 @@
             android:paddingEnd="24dp"
             android:paddingBottom="16dp"
             android:text="@string/app_name"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_on_brand"
             android:textSize="20sp"
             android:textStyle="bold"/>
 
@@ -506,7 +557,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_home"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -519,7 +570,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -527,7 +578,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -549,7 +600,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_arrow_back"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -562,7 +613,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/chat"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -570,7 +621,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/chat_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -592,7 +643,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_projects"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -605,7 +656,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/projects_sessions"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -613,7 +664,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/projects_sessions_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -635,7 +686,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_newchat"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -648,7 +699,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/newchat"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -656,7 +707,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/newchat_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -678,7 +729,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_hub"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -691,7 +742,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/modelhub"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -699,7 +750,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/modelhub_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -721,7 +772,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_images"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -734,7 +785,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/images"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -742,7 +793,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/images_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -764,7 +815,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_tune"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -777,7 +828,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/studio_settings"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -785,7 +836,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/studio_settings_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -807,7 +858,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_settings"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -820,7 +871,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/options"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -828,7 +879,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/options_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -850,7 +901,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_log"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -863,7 +914,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/log"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -871,7 +922,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/log_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
@@ -893,7 +944,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_info"
-                android:tint="#FFFFFF"
+                android:tint="@color/text_on_brand"
                 android:contentDescription=""/>
 
             <LinearLayout
@@ -906,7 +957,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/credits"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_on_brand"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
@@ -914,7 +965,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/credits_desc"
-                    android:textColor="#D6F2E5"
+                    android:textColor="@color/drawer_desc"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>

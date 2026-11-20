@@ -19,6 +19,8 @@ import android.os.Environment;
 import android.os.LocaleList;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatDelegate;
 import android.Manifest;
 import android.os.Build;
 import android.os.Bundle;
@@ -65,7 +67,9 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MainActivity extends Activity {
+// v3.0: AppCompatActivity (non Activity): serve per il tema dark/sistema
+// via AppCompatDelegate + risorse values-night (tema DayNight).
+public class MainActivity extends AppCompatActivity {
 
     private static final String PREFS = "unsloth";
     private static final int HIDE_SCROLL_Y = 100;
@@ -90,6 +94,30 @@ public class MainActivity extends Activity {
     private TextView logText;
     private Switch switchLog;
     private Spinner spinnerLang;
+    // v3.0: tema scelto nelle opzioni: "light", "dark", "system".
+    private Spinner spinnerTheme;
+    private String mTheme = "system";
+    // v3.0: palette della pagina Studio (id della SPA, key localStorage "palette").
+    private Spinner spinnerPalette;
+    private String mPalette = "standard";
+    // Id delle palette Studio, nello STESSO ordine di @array/palette_options
+    // nelle strings.xml: la posizione nello spinner vale come index qui.
+    private static final String[] PALETTE_IDS = {
+            "standard", "matcha", "espresso", "butterfly-pea", "cherry", "earl-grey",
+            "neon-cyberpunk", "macaron", "trick-or-treat", "mint", "taro", "licorice",
+            "blueberry", "tangerine", "honey", "plum", "wasabi", "oat-milk",
+            "cinnamon", "dragon-fruit", "peach", "yuzu", "cotton-candy", "pina-paraiso"
+    };
+    private static int palettePos(String id) {
+        for (int i = 0; i < PALETTE_IDS.length; i++) {
+            if (PALETTE_IDS[i].equals(id)) return i;
+        }
+        return 0;
+    }
+    // v3.0: crash guard: true mentre l'activity e' viva (onResume..onStop).
+    // CrashTickReceiver lo usa per distinguere "l'app e' viva" dal
+    // "processo ripreso adesso dall'allarme" (allora l'activity non esiste).
+    public static boolean sActivityAlive = false;
     private View btnLogRow;
     private ScrollView creditsPanel;
     // Lingua scelta nelle opzioni: "auto" (sistema), "it", "en".
@@ -105,13 +133,11 @@ public class MainActivity extends Activity {
         try {
             mLang = getSharedPreferences(PREFS, MODE_PRIVATE).getString("lang", "auto");
             if (mLang == null) mLang = "auto";
-            if (!"auto".equals(mLang)) {
-                Locale loc = "it".equals(mLang) ? Locale.ITALIAN : Locale.ENGLISH;
-                Configuration c = base.getApplicationContext().getResources().getConfiguration();
-                c.setLocale(loc);
-                c.setLocales(new LocaleList(loc));
-                mLocaleContext = base.createConfigurationContext(c);
-            }
+            // v3.0: il context di lingua NON si crea qui: in
+            // attachBaseContext la configuration non ha ancora la flag
+            // night applicata da AppCompatDelegate, e con lingua it/en il
+            // dark risolverebbe i colori day. Si crea in onCreate dopo
+            // super.onCreate() (vedi li).
         } catch (Exception e) {
         }
     }
@@ -246,6 +272,29 @@ public class MainActivity extends Activity {
         App.log("MainActivity.onCreate: inizio");
         super.onCreate(savedInstanceState);
         App.log("MainActivity.onCreate: super.onCreate ok");
+        // v3.0: qui AppCompatDelegate ha gia' applicato il night mode
+        // (scelto in App.onCreate dai prefs), quindi la configuration
+        // corrente include la flag night: il context di lingua (se non
+        // auto) si crea ADESSO, cosi in dark i colori values-night si
+        // risolvono anche con lingua it/en.
+        try {
+            if (!"auto".equals(mLang)) {
+                Locale loc = "it".equals(mLang) ? Locale.ITALIAN : Locale.ENGLISH;
+                Configuration c = getResources().getConfiguration();
+                c.setLocale(loc);
+                c.setLocales(new LocaleList(loc));
+                mLocaleContext = getApplicationContext().createConfigurationContext(c);
+            }
+        } catch (Exception e) {
+        }
+        // v3.0: tema (light/dark/system) e palette Studio, applicati al
+        // chrome nativo dal night mode e alla pagina Studio da
+        // injectAppearanceJs (localStorage.theme / localStorage.palette).
+        mTheme = getSharedPreferences(PREFS, MODE_PRIVATE).getString("theme", "system");
+        if (mTheme == null) mTheme = "system";
+        // v3.0: palette Studio (key "palette", default "standard").
+        mPalette = getSharedPreferences(PREFS, MODE_PRIVATE).getString("palette", "standard");
+        if (mPalette == null) mPalette = "standard";
         // Se l'avvio viene dal tap sulla notifica "generazione/risposta",
         // l'intent porta l'extra "threadId": all'avvio si apre quella chat.
         try {
@@ -522,6 +571,63 @@ public class MainActivity extends Activity {
                 }
             });
 
+            // v3.0: tema (Chiaro/Scuro/Sistema). Al cambio:
+            // 1) prefs,
+            // 2) injectAppearanceJs: scrive localStorage.theme (e
+            //    localStorage.palette) nella pagina Studio (theme-boot.js
+            //    li applica al primo paint, anche dopo il reload che
+            //    segue il recreate),
+            // 3) setDefaultNightMode: ricrea l'activity (comportamento
+            //    di AppCompat) e il chrome nativo riparte in dark/light.
+            spinnerTheme = findViewById(R.id.spinner_theme);
+            ArrayAdapter<CharSequence> themeAdapter = ArrayAdapter.createFromResource(
+                    this, R.array.theme_options, android.R.layout.simple_spinner_item);
+            themeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinnerTheme.setAdapter(themeAdapter);
+            int themePos = "light".equals(mTheme) ? 0 : ("dark".equals(mTheme) ? 1 : 2);
+            spinnerTheme.setSelection(themePos);
+            spinnerTheme.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    String t = position == 0 ? "light" : (position == 1 ? "dark" : "system");
+                    if (t.equals(mTheme)) return; // selezione iniziale: niente cambio
+                    mTheme = t;
+                    prefs.edit().putString("theme", t).apply();
+                    App.log("OPZIONI tema: " + t);
+                    injectAppearanceJs();
+                    AppCompatDelegate.setDefaultNightMode(App.nightModeFor(t));
+                }
+                @Override
+                public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                }
+            });
+
+            // v3.0: palette della pagina Studio. Al cambio: prefs +
+            // localStorage.palette (theme-boot.js applica data-palette su
+            // <html> al load; l'iniezione qui sotto applica anche subito
+            // l'attributo CSS alla pagina gia' aperta).
+            spinnerPalette = findViewById(R.id.spinner_palette);
+            ArrayAdapter<CharSequence> paletteAdapter = ArrayAdapter.createFromResource(
+                    this, R.array.palette_options, android.R.layout.simple_spinner_item);
+            paletteAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinnerPalette.setAdapter(paletteAdapter);
+            spinnerPalette.setSelection(palettePos(mPalette));
+            spinnerPalette.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    String p = (position >= 0 && position < PALETTE_IDS.length)
+                            ? PALETTE_IDS[position] : "standard";
+                    if (p.equals(mPalette)) return; // selezione iniziale: niente cambio
+                    mPalette = p;
+                    prefs.edit().putString("palette", p).apply();
+                    App.log("OPZIONI palette: " + p);
+                    injectAppearanceJs();
+                }
+                @Override
+                public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                }
+            });
+
             // Download del log: FileProvider (gia' nel manifest) + intent
             // ACTION_SEND con chooser, cosi il file si allega a email/issue.
             View btnDownloadLog = findViewById(R.id.btn_download_log);
@@ -777,6 +883,10 @@ public class MainActivity extends Activity {
                 injectUrlReporter();
                 injectComposerGuard();
                 injectWarningHider();
+                // v3.0: applica tema e palette alla pagina (best effort:
+                // anche se l'iniezione atterra nel documento precedente,
+                // localStorage e' per-origin e resta).
+                injectAppearanceJs();
             }
 
             @Override
@@ -795,6 +905,10 @@ public class MainActivity extends Activity {
                 // window.__unslothToastGuard evita i doppi.
                 new android.os.Handler(getMainLooper())
                         .postDelayed(MainActivity.this::injectWarningHider, 500);
+                // v3.0: backstop di tema e palette (doppia sicurezza sul
+                // localStorage dopo eventuali clearCache(true)).
+                new android.os.Handler(getMainLooper())
+                        .postDelayed(MainActivity.this::injectAppearanceJs, 500);
             }
 
             @Override
@@ -1581,6 +1695,19 @@ public class MainActivity extends Activity {
         super.onResume();
         mInForeground = true;
         App.log("onResume (primo piano)");
+        sActivityAlive = true;
+        // v3.0: marker del crash guard (file in getFilesDir): ora dell'ultimo
+        // primo piano; e allarme ripetuto (~30 s) attivo finche l'app e' in
+        // uso: se il processo muore, l'allarme riparte il processo e
+        // CrashTickReceiver riavvia l'app.
+        writeCrashGuardMarker(String.valueOf(System.currentTimeMillis()));
+        scheduleCrashGuardTick();
+        // v3.0: se l'app e' tornata in primo piano (anche dopo il riavvio del
+        // crash guard via FSI), la notifica di riavvio non serve piu'.
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(CrashTickReceiver.RESTART_NOTIF_ID);
+        } catch (Exception ignored) {}
         if (mScreenOnEnabled) {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         } else {
@@ -1707,7 +1834,63 @@ public class MainActivity extends Activity {
     protected void onStop() {
         super.onStop();
         App.log("onStop (app in background)");
+        sActivityAlive = false;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // v3.0: in background: se il processo muore qui, il crash guard non
+        // deve riavviare l'app (marker "closed"); tolgo anche l'allarme.
+        writeCrashGuardMarker("closed");
+        cancelCrashGuardTick();
+    }
+
+    // v3.0: marker del crash guard. File in getFilesDir (cartella
+    // /data/data/<pkg>/files): timestamp dell'ultimo primo piano o
+    // "closed" se l'app e' in background/chiusa. Lo legge
+    // CrashTickReceiver per decidere se riavviare.
+    private void writeCrashGuardMarker(String content) {
+        try {
+            java.io.File f = new java.io.File(getFilesDir(), "crashguard_marker");
+            java.io.FileWriter fw = new java.io.FileWriter(f);
+            fw.write(content);
+            fw.close();
+        } catch (Exception e) {
+            // non critico: senza marker il crash guard non fa niente
+        }
+    }
+
+    // v3.0: allarme impreciso ripetuto (~30 s, request code 2), attivo solo
+    // mentre l'app e' in uso (onResume lo programma, onStop lo cancella).
+    // Se il processo principale muore, l'allarme persiste nel sistema: alla
+    // scadenza Android riparte il processo principale per consegnare il
+    // broadcast a CrashTickReceiver, che (solo se l'app era morta) posta una
+    // notifica FSI: schermo off -> l'activity si apre da sola, schermo on ->
+    // heads-up e un tap la apre (BAL: su Android 14 ogni via di
+    // startActivity dal background e' chiusa, verificate).
+    private void scheduleCrashGuardTick() {
+        try {
+            android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+            if (am == null) return;
+            Intent i = new Intent(this, CrashTickReceiver.class);
+            android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(this, 2, i,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            am.setRepeating(android.app.AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + 30000, 30000, pi);
+            App.log("CRASHGUARD: allarme tick programmato (~30 s)");
+        } catch (Exception e) {
+            App.log("CRASHGUARD: scheduling errore " + e.getMessage());
+        }
+    }
+
+    private void cancelCrashGuardTick() {
+        try {
+            android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+            if (am == null) return;
+            Intent i = new Intent(this, CrashTickReceiver.class);
+            android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(this, 2, i,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            am.cancel(pi);
+        } catch (Exception e) {
+            // ignora
+        }
     }
 
     // Ri-sincronizza la chat corrente dal server: svuota la cache HTTP e il
@@ -2667,7 +2850,7 @@ public class MainActivity extends Activity {
         if (mUpdateChecking) return;
         mUpdateChecking = true;
         runOnUiThread(() -> {
-            updateStatus.setTextColor(android.graphics.Color.parseColor("#555555"));
+            updateStatus.setTextColor(getResources().getColor(R.color.text_muted));
             updateStatus.setText(getString(R.string.update_checking));
             btnCheckUpdates.setEnabled(false);
         });
@@ -2676,16 +2859,16 @@ public class MainActivity extends Activity {
                 UpdateCheckResult r = fetchLatestRelease();
                 runOnUiThread(() -> {
                     if (r.error) {
-                        updateStatus.setTextColor(android.graphics.Color.parseColor("#D32F2F"));
+                        updateStatus.setTextColor(getResources().getColor(R.color.status_error));
                         updateStatus.setText(getString(R.string.update_check_failed));
                     } else if (r.apkUrl != null) {
                         mUpdateApkUrl = r.apkUrl;
-                        updateStatus.setTextColor(android.graphics.Color.parseColor("#00A371"));
+                        updateStatus.setTextColor(getResources().getColor(R.color.status_ok));
                         updateStatus.setText(getString(R.string.update_available, r.version));
                         App.log("UPDATE-MANUAL: nuova versione " + r.version + ", avvio aggiornamento");
                         downloadAndInstall(r.apkUrl);
                     } else {
-                        updateStatus.setTextColor(android.graphics.Color.parseColor("#00A371"));
+                        updateStatus.setTextColor(getResources().getColor(R.color.status_ok));
                         updateStatus.setText(getString(R.string.update_up_to_date));
                         App.log("UPDATE-MANUAL: sei aggiornato");
                     }
@@ -2942,6 +3125,37 @@ public class MainActivity extends Activity {
                 "  };" +
                 "}" +
                 "})();";
+        webView.evaluateJavascript(js, null);
+    }
+
+    // v3.0: applica l'aspetto scelto nelle opzioni alla pagina Studio:
+    // tema (localStorage.theme) e palette (localStorage.palette). L'SPA li
+    // legge in theme-boot.js al primo paint (classi dark/light e
+    // data-palette su <html>); "system" fa seguire il telefono
+    // (prefers-color-scheme del WebView). Qui sotto applico anche subito il
+    // data-palette all'html aperto: il CSS usa selettori html[data-palette]
+    // e la pagina si ricolora a caldo senza reload. Si reinietta a ogni
+    // navigazione: clearCache(true) (refresh/Home) puo' azzerare il
+    // localStorage del WebView.
+    private void injectAppearanceJs() {
+        if (webView == null) return;
+        String t = (mTheme == null) ? "system" : mTheme;
+        String p = (mPalette == null) ? "standard" : mPalette;
+        String js = "(function(){" +
+                "try {" +
+                "  localStorage.setItem('theme', '" + t + "');" +
+                "  localStorage.setItem('palette', '" + p + "');" +
+                "  var r = document.documentElement;" +
+                "  if (r) {" +
+                "    if (p === 'standard') {" +
+                "      r.removeAttribute('data-palette');" +
+                "    } else {" +
+                "      r.setAttribute('data-palette', p);" +
+                "    }" +
+                "  }" +
+                "  UnslothBridge.appLog('THEME: " + t + " PALETTE: " + p + "');" +
+                "} catch(e) {}" +
+                "})()";
         webView.evaluateJavascript(js, null);
     }
 
@@ -3373,6 +3587,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // v3.0: chiusura: stesso marker di onStop, cosi un eventuale
+        // processo morente non viene riavviato dal crash guard.
+        sActivityAlive = false;
+        writeCrashGuardMarker("closed");
         stopRunPolling();
         stopMirror();
         if (mDownloadReceiver != null) {

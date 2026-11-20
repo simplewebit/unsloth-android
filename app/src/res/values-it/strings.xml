@@ -51,6 +51,10 @@
     <string name="screen_always_on_desc">Mantiene lo schermo acceso mentre l\'app è in primo piano</string>
     <string name="log_enabled">Log</string>
     <string name="log_enabled_desc">Scrive il log di debug in crash.log</string>
+    <string name="section_theme">Tema</string>
+    <string name="theme_hint">Chiaro, scuro o come l\'impostazione del telefono. Vale per l\'app e per la pagina Studio.</string>
+    <string name="section_palette">Palette</string>
+    <string name="palette_hint">Colore di accento della pagina Studio. Standard è il predefinito.</string>
     <string name="developer_info">Sviluppatore: Mattia Di Giuseppe\nmattia.digiuseppe@simpleweb.it</string>
 
     <!-- Log panel -->
@@ -96,10 +100,46 @@
     <string name="channel_done">Risposta pronta</string>
     <string name="channel_done_desc">Notifica quando una generazione è finita</string>
     <string name="keepalive_text">Rinnovo della sessione in corso</string>
+    <string name="channel_crashguard">Ripristino dopo crash</string>
+    <string name="crashguard_title">Unsloth si sta riaprendo</string>
+    <string name="crashguard_text">L\'app si è chiusa e si sta riaprendo</string>
 
     <string-array name="lang_options">
         <item>Automatica</item>
         <item>Italiano</item>
         <item>Inglese</item>
+    </string-array>
+    <string-array name="theme_options">
+        <item>Chiaro</item>
+        <item>Scuro</item>
+        <item>Sistema</item>
+    </string-array>
+    <!-- v3.0: nomi delle palette (stessi nomi della SPA Studio, non tradotti).
+         Stesso ordine di PALETTE_IDS in MainActivity. -->
+    <string-array name="palette_options">
+        <item>Standard</item>
+        <item>Matcha</item>
+        <item>Espresso Amore</item>
+        <item>Butterfly Pea</item>
+        <item>Cherry</item>
+        <item>Earl Grey</item>
+        <item>Neon Cyberpunk</item>
+        <item>Macaron</item>
+        <item>Trick or Treat</item>
+        <item>Mint</item>
+        <item>Ube Chiffon</item>
+        <item>Licorice</item>
+        <item>Blueberry</item>
+        <item>Tangerine Dreams</item>
+        <item>Honey</item>
+        <item>Plum Praline</item>
+        <item>Lime</item>
+        <item>Oat</item>
+        <item>Cinnamon</item>
+        <item>Dragon Fruit</item>
+        <item>Peach</item>
+        <item>Yuzu</item>
+        <item>Cotton Candy</item>
+        <item>Piña Paraíso</item>
     </string-array>
 </resources>

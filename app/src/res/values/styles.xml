@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- v3.0: tema DayNight. In chiaro usa values/colors.xml (verde),
+     in dark values-night/colors.xml (standard SPA #181818).
+     La modalita' (light/dark/system) viene applicata a runtime da
+     AppCompatDelegate (vedi App.java); la voce "Tema" sta nel pannello
+     Options. -->
 <resources>
-    <color name="brand_green">#14B789</color>
-
-    <style name="AppTheme" parent="Theme.Material3.Light.NoActionBar">
-        <item name="colorPrimary">#007A57</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorPrimaryContainer">#14B789</item>
-        <item name="colorOnPrimaryContainer">#003826</item>
-        <item name="android:statusBarColor">#00BB7F</item>
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/primary_on</item>
+        <item name="colorPrimaryContainer">@color/primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/primary_container_on</item>
+        <item name="android:statusBarColor">@color/brand_surface</item>
         <item name="android:navigationBarColor">?attr/colorSurface</item>
+        <item name="android:windowBackground">@color/window_bg</item>
     </style>
 </resources>

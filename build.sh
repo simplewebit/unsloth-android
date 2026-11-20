@@ -59,7 +59,7 @@ echo "== aapt2 link =="
   "$OUT/compiled_app.zip"
 
 echo "== javac =="
-CP="$ANDROID_JAR;libs/material-x/classes.jar;libs/appcompat-x/classes.jar;libs/core-x/classes.jar;libs/activity-x/classes.jar;libs/cardview-x/classes.jar;libs/coordinatorlayout-x/classes.jar;libs/constraintlayout-x/classes.jar;libs/drawerlayout-x/classes.jar;libs/customview-full-cls/classes.jar;libs/dynamicanimation-x/classes.jar;libs/fragment-x/classes.jar;libs/recyclerview-x/classes.jar;libs/transition-x/classes.jar;libs/vectordrawable-x/classes.jar;libs/viewpager2-x/classes.jar;libs/lifecycle-runtime.jar;libs/annotation.jar;$OUT/gen"
+CP="$ANDROID_JAR;libs/material-x/classes.jar;libs/appcompat-x/classes.jar;libs/savedstate-cls.jar;libs/core-x/classes.jar;libs/lifecycle-common-cls;libs/lifecycle-viewmodel-cls;libs/activity-x/classes.jar;libs/cardview-x/classes.jar;libs/coordinatorlayout-x/classes.jar;libs/constraintlayout-x/classes.jar;libs/drawerlayout-x/classes.jar;libs/customview-full-cls/classes.jar;libs/dynamicanimation-x/classes.jar;libs/fragment-x/classes.jar;libs/recyclerview-x/classes.jar;libs/transition-x/classes.jar;libs/vectordrawable-x/classes.jar;libs/viewpager2-x/classes.jar;libs/lifecycle-runtime.jar;libs/annotation.jar;$OUT/gen"
 "$JDK/javac.exe" -source 1.8 -target 1.8 \
   -cp "$CP" \
   -d "$OUT/classes" \
@@ -69,6 +69,7 @@ CP="$ANDROID_JAR;libs/material-x/classes.jar;libs/appcompat-x/classes.jar;libs/c
   app/src/it/mattia/unsloth/GenService.java \
   app/src/it/mattia/unsloth/KeepAliveService.java \
   app/src/it/mattia/unsloth/KeepAliveReceiver.java \
+  app/src/it/mattia/unsloth/CrashTickReceiver.java \
   "$OUT/gen/it/mattia/unsloth/R.java" \
   $(find app/src/androidx app/src/com -name "*.java" 2>/dev/null | sort)
 
@@ -83,14 +84,14 @@ cur, in_arr, arr_name, arr_type, arr_vals = None, False, None, None, []
 for line in content.splitlines():
     s = line.strip()
     if in_arr:
-        arr_vals.extend(re.findall(r'(0x[0-9a-f]+)', s))
+        arr_vals.extend(re.findall(r'(0x[0-9a-fA-F]+|\d+)', s))
         if s.endswith('};'): in_arr = False; arr_map[(arr_type, arr_name)] = arr_vals; arr_vals = []
         continue
     m = re.match(r'public static final class (\w+)\s*\{', s)
     if m: cur = m.group(1); continue
     m = re.match(r'public static final int\[\] (\w+)\s*=\s*\{', s)
-    if m and cur: in_arr = True; arr_name = m.group(1); arr_type = cur; arr_vals = re.findall(r'(0x[0-9a-f]+)', s); continue
-    m = re.match(r'public static final int (\w+)\s*=\s*(0x[0-9a-f]+)\s*;', s)
+    if m and cur: in_arr = True; arr_name = m.group(1); arr_type = cur; arr_vals = re.findall(r'(0x[0-9a-fA-F]+|\d+)', s); continue
+    m = re.match(r'public static final int (\w+)\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;', s)
     if m and cur: int_map[(cur, m.group(1))] = m.group(2)
 libs = {}
 for d in glob.glob("libs/*-x"):
@@ -109,7 +110,7 @@ for d, (pkg, rtxt) in sorted(libs.items()):
             m = re.match(r'int\[\]\s+(\w+)\s+(\w+)\s*\{', line)
             if m:
                 key = (m.group(1), m.group(2))
-                vals = arr_map.get(key) or re.findall(r'(0x[0-9a-f]+)', line)
+                vals = arr_map.get(key) or re.findall(r'(0x[0-9a-fA-F]+|\d+)', line)
                 aent.append((m.group(1), m.group(2), vals)); continue
             p = line.split()
             if len(p) >= 4 and p[0] == 'int':

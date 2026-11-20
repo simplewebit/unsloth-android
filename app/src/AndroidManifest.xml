@@ -36,6 +36,13 @@
             android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
+        <!-- v3.0: crash guard. Riceve il tick dell'allarme impreciso
+             ripetuto (programmato in onResume): se il processo principale
+             e' morto, Android riparte il processo per consegnare il
+             broadcast e il receiver riavvia l'app (allowlist da allarme). -->
+        <receiver
+            android:name=".CrashTickReceiver"
+            android:exported="false"/>
         <receiver
             android:name=".KeepAliveReceiver"
             android:exported="false"/>
