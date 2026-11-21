@@ -7,6 +7,7 @@
 - Credits page: new "Changelog" button (green pill, same style as the other buttons) opening this file on GitHub.
 - First launch of a new version: in-app changelog screen with the current version's notes, shown once per version.
 - Changelog screen and Close button translated into Italian (Close / Chiudi).
+- No IP and no DDNS set: warning toast asking to enter one in Options (English and Italian).
 
 ## 3.0
 

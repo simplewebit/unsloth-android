@@ -955,6 +955,8 @@ public class MainActivity extends AppCompatActivity {
             editPort.setText(port);
             connect(ip, ddns, port);
         } else {
+            Toast.makeText(this, getString(R.string.no_address_set),
+                    Toast.LENGTH_LONG).show();
             openOptions();
         }
         // v3.0.1: prima apertura di una versione nuova (o installazione da
@@ -1132,7 +1134,11 @@ public class MainActivity extends AppCompatActivity {
         String ddns = editDdns.getText().toString().trim();
         String port = editPort.getText().toString().trim();
         if (port.isEmpty()) port = "8888";
-        if (ip.isEmpty() && ddns.isEmpty()) return;
+        if (ip.isEmpty() && ddns.isEmpty()) {
+            Toast.makeText(this, getString(R.string.no_address_set),
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
         if (!port.matches("[0-9]+")) return;
         int p = Integer.parseInt(port);
         if (p < 1 || p > 65535) return;

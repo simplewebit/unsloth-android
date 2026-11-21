@@ -82,6 +82,7 @@
     <string name="downloads_channel">Downloads</string>
     <string name="downloads_channel_desc">Notifiche di download da Unsloth</string>
     <string name="crash_toast">Crash! Log in crash.log</string>
+    <string name="no_address_set">Nessun IP o DDNS compilato: compilalo in Opzioni per collegarti.</string>
 
     <!-- Update banner (v2) -->
     <string name="update_available">Nuova versione disponibile: %1$s</string>

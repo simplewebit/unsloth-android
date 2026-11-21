@@ -82,6 +82,7 @@
     <string name="downloads_channel">Downloads</string>
     <string name="downloads_channel_desc">Unsloth download notifications</string>
     <string name="crash_toast">Crash! Log in crash.log</string>
+    <string name="no_address_set">No IP or DDNS entered: enter one in Options to connect.</string>
 
     <!-- Update banner (v2) -->
     <string name="update_available">New version available: %1$s</string>
