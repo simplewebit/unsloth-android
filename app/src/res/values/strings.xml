@@ -60,7 +60,7 @@
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Close</string>
     <!-- Novità della versione corrente: aggiornare a ogni nuova versione. -->
-    <string name="changelog_current">v3.0.1\n- Generation banner \"Generating response...\": now always on top of the Studio page (raised z-index).\n- Credits: contact link visible in the dark theme (white on dark, green on light).\n- Credits: new \"Changelog\" link opening the GitHub changelog.\n- First launch of a new version: this changelog screen, shown once per version.</string>
+    <string name="changelog_current">v3.0.1\n- Generation banner "Generating response...": now always on top of the Studio page (raised z-index).\n- Credits: contact link visible in the dark theme (white on dark, green on light).\n- Credits: new "Changelog" button opening the GitHub changelog.\n- First launch of a new version: this changelog screen, shown once per version.\n- Changelog screen and Close button translated into Italian (Close / Chiudi).</string>
 
     <!-- Log panel -->
     <string name="download_log">Download log</string>

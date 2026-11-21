@@ -42,6 +42,11 @@
     <string name="developer_contact">www.simpleweb.it - mattia.digiuseppe@simpleweb.it</string>
     <string name="website">https://www.simpleweb.it</string>
 
+    <!-- Changelog (v3.0.1) -->
+    <string name="changelog_title">Changelog</string>
+    <string name="close_changelog">Chiudi</string>
+    <string name="changelog_current">v3.0.1\n- Banner \"Generazione in corso…\": sempre in primo piano sulla pagina Studio (z-index aumentato).\n- Credits: link di contatto visibile in tema scuro (bianco su scuro, verde su chiaro).\n- Credits: nuovo bottone \"Changelog\" che apre il changelog su GitHub.\n- Primo avvio di una versione nuova: questa schermata changelog, mostrata una volta per versione.\n- Credits: il link \"Changelog\" è diventato un bottone; schermata changelog e bottone Chiudi tradotti in italiano.</string>
+
     <!-- Options panel -->
     <string name="options_title">Opzioni</string>
     <string name="section_connection">Collegamento</string>

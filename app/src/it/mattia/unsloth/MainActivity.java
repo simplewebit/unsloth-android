@@ -95,7 +95,7 @@ public class MainActivity extends AppCompatActivity {
     // CHANGELOG.md su GitHub) e pannello a tutto schermo mostrato alla prima
     // apertura di una nuova versione (una volta per versionCode).
     private ScrollView changelogPanel;
-    private TextView creditChangelog;
+    private Button creditChangelog;
     private static final String CHANGELOG_GITHUB_URL =
             "https://github.com/simplewebit/unsloth-android/blob/main/CHANGELOG.md";
     private ScrollView logPanel;
@@ -520,13 +520,11 @@ public class MainActivity extends AppCompatActivity {
             if (creditContact != null) {
                 creditContact.setLinkTextColor(getResources().getColor(R.color.credit_link));
             }
-            // v3.0.1: link "Changelog" nella pagina Credits -> CHANGELOG.md
-            // su GitHub (stesso stile dei link Credits: credit_link, bianco
-            // in dark e verde in light).
+            // v3.0.1: bottone "Changelog" nella pagina Credits ->
+            // CHANGELOG.md su GitHub (bottone verde stile btn_check_updates,
+            // testo bianco da @color/text_on_brand nell'XML).
             creditChangelog = findViewById(R.id.credit_changelog);
             if (creditChangelog != null) {
-                creditChangelog.setTextColor(
-                        getResources().getColor(R.color.credit_link));
                 creditChangelog.setOnClickListener(v -> {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW,

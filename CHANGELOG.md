@@ -4,8 +4,9 @@
 
 - Update banner "Generating response…": raised z-index (999999) so it always stays on top of the Studio page content.
 - Credits page: contact link now visible in the dark theme (white on dark, green on light).
-- Credits page: new "Changelog" link opening this file on GitHub.
+- Credits page: new "Changelog" button (green pill, same style as the other buttons) opening this file on GitHub.
 - First launch of a new version: in-app changelog screen with the current version's notes, shown once per version.
+- Changelog screen and Close button translated into Italian (Close / Chiudi).
 
 ## 3.0
 

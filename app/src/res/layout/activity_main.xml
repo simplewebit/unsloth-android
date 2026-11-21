@@ -480,15 +480,18 @@
                     android:textSize="12sp"
                     android:textStyle="italic"/>
 
-                <!-- v3.0.1: link Changelog -> CHANGELOG.md su GitHub -->
-                <TextView
+                <!-- v3.0.1: bottone Changelog -> CHANGELOG.md su GitHub
+                     (stesso stile di btn_check_updates) -->
+                <Button
                     android:id="@+id/credit_changelog"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:gravity="center"
-                    android:text="Changelog"
-                    android:textSize="16sp"
+                    android:background="@drawable/bg_gen_box"
+                    android:paddingStart="28dp"
+                    android:paddingEnd="28dp"
+                    android:text="@string/changelog_title"
+                    android:textColor="@color/text_on_brand"
                     android:textStyle="bold"/>
 
                 <!-- v2: check manuale aggiornamenti (pagina Credits) -->
