@@ -56,6 +56,12 @@
     <string name="palette_hint">Accent color of the Studio page. Standard is the default.</string>
     <string name="developer_info">Developer: Mattia Di Giuseppe\nmattia.digiuseppe@simpleweb.it</string>
 
+    <!-- Changelog panel (v3.0.1) -->
+    <string name="changelog_title">Changelog</string>
+    <string name="close_changelog">Close</string>
+    <!-- Novità della versione corrente: aggiornare a ogni nuova versione. -->
+    <string name="changelog_current">v3.0.1\n- Generation banner \"Generating response...\": now always on top of the Studio page (raised z-index).\n- Credits: contact link visible in the dark theme (white on dark, green on light).\n- Credits: new \"Changelog\" link opening the GitHub changelog.\n- First launch of a new version: this changelog screen, shown once per version.</string>
+
     <!-- Log panel -->
     <string name="download_log">Download log</string>
     <string name="clear_log">Clear log</string>

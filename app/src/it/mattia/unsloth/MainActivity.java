@@ -91,6 +91,13 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout errorPanel;
     private TextView errorText;
     private TextView creditContact;
+    // v3.0.1: changelog - link "Changelog" nella pagina Credits (verso
+    // CHANGELOG.md su GitHub) e pannello a tutto schermo mostrato alla prima
+    // apertura di una nuova versione (una volta per versionCode).
+    private ScrollView changelogPanel;
+    private TextView creditChangelog;
+    private static final String CHANGELOG_GITHUB_URL =
+            "https://github.com/simplewebit/unsloth-android/blob/main/CHANGELOG.md";
     private ScrollView logPanel;
     private TextView logText;
     private Switch switchLog;
@@ -513,6 +520,26 @@ public class MainActivity extends AppCompatActivity {
             if (creditContact != null) {
                 creditContact.setLinkTextColor(getResources().getColor(R.color.credit_link));
             }
+            // v3.0.1: link "Changelog" nella pagina Credits -> CHANGELOG.md
+            // su GitHub (stesso stile dei link Credits: credit_link, bianco
+            // in dark e verde in light).
+            creditChangelog = findViewById(R.id.credit_changelog);
+            if (creditChangelog != null) {
+                creditChangelog.setTextColor(
+                        getResources().getColor(R.color.credit_link));
+                creditChangelog.setOnClickListener(v -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW,
+                                Uri.parse(CHANGELOG_GITHUB_URL)));
+                    } catch (Exception e) {
+                        Toast.makeText(this, "No browser available",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+            changelogPanel = findViewById(R.id.changelog_panel);
+            View btnCloseChangelog = findViewById(R.id.btn_close_changelog);
+            btnCloseChangelog.setOnClickListener(v -> hideChangelog());
             App.log("MainActivity.onCreate: view trovati (versione " + APP_VERSION + ")");
 
 
@@ -931,6 +958,25 @@ public class MainActivity extends AppCompatActivity {
             connect(ip, ddns, port);
         } else {
             openOptions();
+        }
+        // v3.0.1: prima apertura di una versione nuova (o installazione da
+        // zero): mostra il pannello changelog una volta per versionCode.
+        try {
+            int currentVc = getPackageManager()
+                    .getPackageInfo(getPackageName(), 0).versionCode;
+            SharedPreferences prefsVc = getSharedPreferences(PREFS, MODE_PRIVATE);
+            int shownVc = prefsVc.getInt("changelog_shown_vc", -1);
+            if (shownVc != currentVc) {
+                prefsVc.edit().putInt("changelog_shown_vc", currentVc).apply();
+                TextView ct = findViewById(R.id.changelog_title);
+                ct.setText("Changelog " + APP_VERSION);
+                TextView cx = findViewById(R.id.changelog_text);
+                cx.setText(getString(R.string.changelog_current));
+                openChangelog();
+                App.log("Changelog: prima apertura della versione " + APP_VERSION
+                        + " (versionCode " + currentVc + ")");
+            }
+        } catch (Exception e) {
         }
         App.log("MainActivity.onCreate: FINE - app avviata con successo");
     }
@@ -1664,6 +1710,10 @@ public class MainActivity extends AppCompatActivity {
         }
         if (creditsPanel.getVisibility() == View.VISIBLE) {
             hideCredits();
+            return;
+        }
+        if (changelogPanel.getVisibility() == View.VISIBLE) {
+            hideChangelog();
             return;
         }
         if (logPanel.getVisibility() == View.VISIBLE) {
@@ -3552,6 +3602,28 @@ public class MainActivity extends AppCompatActivity {
 
     private void hideCredits() {
         creditsPanel.setVisibility(View.GONE);
+        if (currentUrl != null) {
+            webView.setVisibility(View.VISIBLE);
+            updateBar();
+        } else {
+            openOptions();
+        }
+    }
+
+    // v3.0.1: pannello changelog (prima apertura di una versione nuova).
+    private void openChangelog() {
+        mErrorActive = false;
+        errorPanel.setVisibility(View.GONE);
+        logPanel.setVisibility(View.GONE);
+        optionsPanel.setVisibility(View.GONE);
+        webView.setVisibility(View.GONE);
+        creditsPanel.setVisibility(View.GONE);
+        changelogPanel.setVisibility(View.VISIBLE);
+        updateBar();
+    }
+
+    private void hideChangelog() {
+        changelogPanel.setVisibility(View.GONE);
         if (currentUrl != null) {
             webView.setVisibility(View.VISIBLE);
             updateBar();

@@ -480,6 +480,17 @@
                     android:textSize="12sp"
                     android:textStyle="italic"/>
 
+                <!-- v3.0.1: link Changelog -> CHANGELOG.md su GitHub -->
+                <TextView
+                    android:id="@+id/credit_changelog"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center"
+                    android:text="Changelog"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+
                 <!-- v2: check manuale aggiornamenti (pagina Credits) -->
                 <TextView
                     android:id="@+id/update_status"
@@ -502,6 +513,55 @@
                     android:paddingStart="28dp"
                     android:paddingEnd="28dp"
                     android:text="@string/check_updates"
+                    android:textColor="@color/text_on_brand"
+                    android:textStyle="bold"/>
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- v3.0.1: pannello changelog (prima apertura di una versione nuova) -->
+        <ScrollView
+            android:id="@+id/changelog_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/window_bg"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="24dp">
+
+                <TextView
+                    android:id="@+id/changelog_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/changelog_title"
+                    android:textSize="18sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/changelog_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:paddingBottom="24dp"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp"/>
+
+                <Button
+                    android:id="@+id/btn_close_changelog"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:background="@drawable/bg_gen_box"
+                    android:paddingStart="28dp"
+                    android:paddingEnd="28dp"
+                    android:text="@string/close_changelog"
                     android:textColor="@color/text_on_brand"
                     android:textStyle="bold"/>
             </LinearLayout>

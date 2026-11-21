@@ -1,0 +1,17 @@
+# Changelog
+
+## 3.0.1
+
+- Update banner "Generating response…": raised z-index (999999) so it always stays on top of the Studio page content.
+- Credits page: contact link now visible in the dark theme (white on dark, green on light).
+- Credits page: new "Changelog" link opening this file on GitHub.
+- First launch of a new version: in-app changelog screen with the current version's notes, shown once per version.
+
+## 3.0
+
+- Theme: new "Theme" row in the Options panel with a Light / Dark / System spinner. Applies to the native app and to the Studio page (localStorage.theme), so the WebView page follows the same theme.
+- Palette: new "Palette" row in the Options panel with the 24 Studio palettes (standard is the default). Applies to the Studio page accent color (localStorage.palette); works live on an already-open page, no reload needed.
+- Crash guard: a repeating inexact broadcast alarm scheduled in onResume lets a receiver post a full-screen-intent notification that restarts the app after a crash (Android 14 BAL-safe).
+- Credits page: version now 3.0 under the logo; screenshot updated.
+- Version: 3.0 / versionCode 14 everywhere (manifest, APP_VERSION, Credits).
+- Existing installs: no migration needed.
