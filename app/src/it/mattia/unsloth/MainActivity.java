@@ -28,6 +28,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -255,7 +256,7 @@ public class MainActivity extends AppCompatActivity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "3.0.1";
+    static final String APP_VERSION = "3.1";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -677,27 +678,53 @@ public class MainActivity extends AppCompatActivity {
         View btnChat = findViewById(R.id.btn_chat);
         btnChat.setOnClickListener(v -> {
             drawerLayout.closeDrawer(Gravity.START);
+            hideKeyboard();
             if (currentUrl == null) return;
+            mErrorActive = false;
+            errorPanel.setVisibility(View.GONE);
+            logPanel.setVisibility(View.GONE);
+            creditsPanel.setVisibility(View.GONE);
+            optionsPanel.setVisibility(View.GONE);
+            webView.setVisibility(View.VISIBLE);
+            updateBar();
+            // v3.1: apri DIRETTAMENTE l'ultima chat (mLastThread, seguita dal
+            // bridge reportUrl/reportNewThread e salvata nei prefs). goBack
+            // seguiva la cronologia WebView dell'SPA, che spesso portava su
+            // una pagina "chat nuova" (?new=<nonce>) e cosi' si apriva una
+            // chat nuova invece dell'ultima.
+            String last = (mLastThread != null) ? mLastThread : "";
+            boolean alreadyOn = false;
+            if (!last.isEmpty()) {
+                try {
+                    String u = mPageUrl;
+                    if (u != null) {
+                        Uri uu = Uri.parse(u);
+                        String q = uu.getQueryParameter("thread");
+                        alreadyOn = last.equals(q);
+                    }
+                } catch (Exception e) {
+                }
+            }
+            if (alreadyOn) {
+                App.log("CHAT: gia' sull'ultima chat " + last);
+                return;
+            }
+            if (!last.isEmpty()) {
+                try {
+                    App.log("CHAT: apri ultima chat " + last);
+                    webView.loadUrl(currentUrl + "/chat?thread="
+                            + java.net.URLEncoder.encode(last, "UTF-8"));
+                } catch (Exception e) {
+                    App.log("CHAT: errore nav " + e.getMessage());
+                }
+                return;
+            }
             if (webView.canGoBack()) {
-                App.log("CHAT: goBack");
-                mErrorActive = false;
-                errorPanel.setVisibility(View.GONE);
-                logPanel.setVisibility(View.GONE);
-                creditsPanel.setVisibility(View.GONE);
-                optionsPanel.setVisibility(View.GONE);
-                webView.setVisibility(View.VISIBLE);
-                updateBar();
+                App.log("CHAT: niente thread noto, goBack");
                 webView.goBack();
             } else {
                 // Niente cronologia: torna alla pagina iniziale di Unsloth
                 App.log("CHAT: niente cronologia -> home " + currentUrl);
-                mErrorActive = false;
-                errorPanel.setVisibility(View.GONE);
-                logPanel.setVisibility(View.GONE);
-                creditsPanel.setVisibility(View.GONE);
-                optionsPanel.setVisibility(View.GONE);
-                webView.setVisibility(View.VISIBLE);
-                updateBar();
                 webView.loadUrl(currentUrl);
             }
         });
@@ -1741,6 +1768,14 @@ public class MainActivity extends AppCompatActivity {
         mInForeground = true;
         App.log("onResume (primo piano)");
         sActivityAlive = true;
+        // v3.1: al rientro nella chat la tastiera soft e' sempre chiusa:
+        // tolgo quella eventualmente aperta e evito che si riapra da sola
+        // quando l'activity torna in primo piano con un input in focus.
+        try {
+            getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+        } catch (Exception ignored) {
+        }
+        hideKeyboard();
         // v3.0: marker del crash guard (file in getFilesDir): ora dell'ultimo
         // primo piano; e allarme ripetuto (~30 s) attivo finche l'app e' in
         // uso: se il processo muore, l'allarme riparte il processo e
@@ -1777,10 +1812,11 @@ public class MainActivity extends AppCompatActivity {
                 // ricaricarla. Se serve a ricaricare c'e' il tasto refresh
                 // nella barra in alto.
                 App.log("onResume: niente resync, resto sulla chat");
-            } else if (doneTs > mSuspendTs) {
-                // Il service ha segnato il completamento MENTRE eravamo via:
-                // ricarico la chat dal server cosi telefono e PC mostrano gli
-                // stessi messaggi.
+            } else if (doneTs > 0) {
+                // Il service ha segnato il completamento (mentre eravamo via,
+                // o gia' prima): ricarico la chat dal server. Non riavvio il
+                // service: onStartCommand farebbe cancel(2) e cancellerebbe
+                // la notifica "risposta pronta".
                 genFinitaResync();
             } else {
                 // Race coperta: il POST chat-runs puo' essere arrivato in
@@ -1815,26 +1851,38 @@ public class MainActivity extends AppCompatActivity {
             // ignora
         }
         if (isRecentGen()) {
-            Intent gi = new Intent(this, GenService.class);
+            // v3.1: se la generazione e' gia' finita (gen_done_ts segnato dopo
+            // l'ultimo avvio), NON riavviare il service: onStartCommand
+            // farebbe cancel(2) e cancellerebbe la notifica "risposta pronta".
+            long doneTs = 0;
             try {
-                String url = webView.getUrl();
-                if (url != null) {
-                    Uri u = Uri.parse(url);
-                    String t = u.getQueryParameter("thread");
-                    if (t != null) gi.putExtra("threadId", t);
-                }
+                doneTs = getSharedPreferences(PREFS, MODE_PRIVATE).getLong("gen_done_ts", 0);
             } catch (Exception e) {
-                // ignora
             }
-            try {
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(gi); else startService(gi);
-            } catch (Exception e) {
+            if (doneTs > 0 && doneTs >= mGenStartMs) {
+                App.log("GEN: pausa, niente riavvio service (generazione gia' finita)");
+            } else {
+                Intent gi = new Intent(this, GenService.class);
+                try {
+                    String url = webView.getUrl();
+                    if (url != null) {
+                        Uri u = Uri.parse(url);
+                        String t = u.getQueryParameter("thread");
+                        if (t != null) gi.putExtra("threadId", t);
+                    }
+                } catch (Exception e) {
+                    // ignora
+                }
+                try {
+                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(gi); else startService(gi);
+                } catch (Exception e) {
                 // Schermo spento: l'app e' gia' in background e Android 12+
                 // vieta startForegroundService da qui -> senza catch il
                 // processo crasha e al rientro si parte dalla pagina base.
                 // Il service, se gia' partito col POST chat-runs, continua;
                 // al rientro onResume riprova l'avvio (startGenServiceNow).
                 App.log("GEN: avvio FGS in onPause fallito " + e.getMessage());
+                }
             }
         }
     }
@@ -1863,6 +1911,7 @@ public class MainActivity extends AppCompatActivity {
                                 optionsPanel.setVisibility(View.GONE);
                                 webView.setVisibility(View.VISIBLE);
                                 updateBar();
+                                hideKeyboard(); // v3.1: tastiera chiusa al rientro
                                 webView.loadUrl(target);
                             } catch (Exception e) {
                                 App.log("OPEN-THREAD: errore nav " + e.getMessage());
@@ -2006,6 +2055,42 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // v3.1: riapri la chat sempre con la tastiera soft chiusa (rientro in
+    // primo piano, tap "Torna alla chat", tap sulla notifica).
+    private void hideKeyboard() {
+        try {
+            InputMethodManager imm =
+                    (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(webView.getWindowToken(),
+                    InputMethodManager.HIDE_NOT_ALWAYS);
+        } catch (Exception e) {
+        }
+    }
+
+    // v3.1: titolo del thread (GET /api/chat/threads/<id>) per la notifica
+    // "risposta pronta" quando il service non ha segnato il completamento.
+    private String fetchThreadTitle(String base, String tok, String tid) {
+        if (tid == null || tid.isEmpty()) return "";
+        try {
+            java.net.URL u = new java.net.URL(base + "/api/chat/threads/"
+                    + java.net.URLEncoder.encode(tid, "UTF-8"));
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+            c.setRequestProperty("Authorization", "Bearer " + tok);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(20000);
+            if (c.getResponseCode() != 200) return "";
+            java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(c.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            org.json.JSONObject j = new org.json.JSONObject(sb.toString());
+            return j.optString("title", "");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private void genFinitaResync() {
         if (System.currentTimeMillis() - mGenResyncTs < 30 * 1000L) return;
         mGenResyncTs = System.currentTimeMillis();
@@ -2053,6 +2138,10 @@ public class MainActivity extends AppCompatActivity {
                     org.json.JSONObject j = new org.json.JSONObject(sb.toString());
                     org.json.JSONArray runs = j.optJSONArray("runs");
                     final boolean active = runs != null && runs.length() > 0;
+                    // v3.1: se la generazione e' finita, leggo il titolo del
+                    // thread cosi' la notifica "risposta pronta" mostra il nome
+                    // della sessione (come fa GenService).
+                    final String title = active ? "" : fetchThreadTitle(base, tok, tid);
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -2063,7 +2152,7 @@ public class MainActivity extends AppCompatActivity {
                                 // non l'ha mai segnata (non era partito): mando la
                                 // notifica "risposta pronta" e ri-sincronizzo.
                                 App.log("SYNC: generazione finita senza notifica, postResponseReady");
-                                GenService.postResponseReady(MainActivity.this, currentThreadId(), "");
+                                GenService.postResponseReady(MainActivity.this, tid, title);
                                 genFinitaResync();
                             }
                         }

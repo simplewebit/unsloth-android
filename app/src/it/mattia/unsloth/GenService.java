@@ -40,6 +40,16 @@ public class GenService extends Service {
     private String mHost = "", mToken = "", mThreadId = "";
     // Titolo della chat per le notifiche (letto da /api/chat/threads/<id>).
     private String mThreadTitle = "";
+    // v3.1: stati errore/riprova letti dall'evento SSE run.failed.
+    // mHadError: il run corrente o precedente e' fallito (solo in questa istanza).
+    // mErrorRetried: dopo un errore e' comparso un run nuovo (retry di Studio).
+    // mErrTs: errore (set in onRunFailed e persistito in prefs gen_err_ts):
+    // il service si riavvia dopo ogni run, quindi senza persistenza il retry
+    // non verrebbe mai riconosciuto come "riprova dopo errore".
+    private volatile long mErrTs = 0;
+    private volatile boolean mHadError = false;
+    private volatile boolean mErrorRetried = false;
+    private static final long ERR_WINDOW_MS = 10 * 60 * 1000L;
 
     private volatile boolean mStop = false;
     private Thread mWorker;
@@ -47,6 +57,25 @@ public class GenService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int id) {
         createChannel();
+        mHadError = false;
+        mErrorRetried = false;
+        // v3.1: riprendo l'errore persistito, se e' ancora recente: il primo
+        // run nuovo in questa istanza e' quindi una "riprova dopo errore".
+        try {
+            long ets = getSharedPreferences("unsloth", MODE_PRIVATE).getLong("gen_err_ts", 0);
+            if (ets > 0 && System.currentTimeMillis() - ets < ERR_WINDOW_MS) {
+                mErrTs = ets;
+            }
+        } catch (Exception ignored) {
+        }
+        // v3.1: sempre una sola notifica: se e' rimasta una "risposta pronta"
+        // della generazione precedente (non ancora toccata), la tolgo e
+        // resta solo la ongoing "generazione in corso".
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(2);
+        } catch (Exception ignored) {
+        }
         startForeground(1, buildOngoing());
         App.log("GEN: keep-alive avviato");
         if (mWorker != null && mWorker.isAlive()) {
@@ -104,6 +133,23 @@ public class GenService extends Service {
                         String rid = runs.getJSONObject(0).optString("id", "");
                         if (!rid.equals(sseRunId)) {
                             sseRunId = rid;
+                            // v3.1: l'errore appartiene al run precedente: il
+                            // run nuovo non e' ancora fallito, cosi' al
+                            // completamento la notifica dice "finito dopo
+                            // riprova" (mode 1) e non "errore" (mode 2).
+                            mHadError = false;
+                            if ((mHadError || mErrTs > 0) && !mErrorRetried) {
+                                // v3.1: dopo l'errore (questa istanza o la
+                                // precedente, persistita) Studio ha riprovato
+                                // (run nuovo): la notifica lo dice.
+                                mErrorRetried = true;
+                                App.log("GEN: retry dopo errore, run nuovo " + rid);
+                                try {
+                                    NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                                    if (nm != null) nm.notify(1, buildOngoing());
+                                } catch (Exception ignored) {
+                                }
+                            }
                             openSse(host, mToken, rid);
                         }
                     } else if (hadRun) {
@@ -160,10 +206,16 @@ public class GenService extends Service {
                             new java.io.InputStreamReader(c.getInputStream(), "UTF-8"));
                     String line;
                     int n = 0;
+                    String lastEvent = "";
                     while ((line = r.readLine()) != null) {
                         if (line.startsWith("event:")) {
                             n++;
-                            if (n <= 5) App.log("GEN: SSE event " + line.substring(6).trim());
+                            lastEvent = line.substring(6).trim();
+                            if (n <= 5) App.log("GEN: SSE event " + lastEvent);
+                        } else if (line.startsWith("data:") && "run.failed".equals(lastEvent)) {
+                            // v3.1: il run e' fallito (payload con "error"):
+                            // segnalo errore/retry nella notifica ongoing.
+                            onRunFailed(line.substring(5).trim());
                         }
                     }
                 } catch (Exception e) {
@@ -172,6 +224,34 @@ public class GenService extends Service {
             }
         });
         t.start();
+    }
+
+    // v3.1: evento SSE run.failed del backend (payload {"status":"failed",
+    // "error": "..."}, vedi studio/backend/storage/chat_generation_runs_db.py).
+    // Segnalo l'errore e aggiorno subito la notifica ongoing; se poi il
+    // polling trova un run nuovo (retry di Studio) il loop mette
+    // mErrorRetried e la notifica cambia in "riprova in corso".
+    private void onRunFailed(String dataJson) {
+        try {
+            JSONObject j = new JSONObject(dataJson);
+            App.log("GEN: run.failed " + j.optString("error", "(senza dettaglio)"));
+        } catch (Exception e) {
+            App.log("GEN: run.failed (payload non letto)");
+        }
+        mHadError = true;
+        mErrTs = System.currentTimeMillis();
+        // Persistito: al riavvio del service (dopo il retry) il nuovo run
+        // viene riconosciuto come riprova dopo errore.
+        try {
+            getSharedPreferences("unsloth", MODE_PRIVATE).edit()
+                    .putLong("gen_err_ts", System.currentTimeMillis()).apply();
+        } catch (Exception e) {
+        }
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(1, buildOngoing());
+        } catch (Exception e) {
+        }
     }
 
     // Usa mToken (campo, non parametro): dopo un 401 refreshToken() aggiorna
@@ -286,7 +366,28 @@ public class GenService extends Service {
                     .putLong("gen_done_ts", System.currentTimeMillis()).apply();
         } catch (Exception e) {
         }
-        postResponseReady(this, mThreadId, mThreadTitle);
+        // v3.1: sempre una sola notifica: tolgo la ongoing "generazione in
+        // corso" (id 1) prima di pubblicare "risposta pronta" (id 2).
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(1);
+        } catch (Exception e) {
+        }
+        // mode: 0 ok, 1 finito dopo errore+retry, 2 finito con errore (no retry).
+        // Se il run e' fallito (mHadError) il modo e' 2 anche se era un retry:
+        // il retry stesso e' finito in errore.
+        int mode = mHadError ? 2 : (mErrorRetried ? 1 : 0);
+        postResponseReady(this, mThreadId, mThreadTitle, mode);
+        // A run completato l'errore non conta piu': tolgo la persistenza cosi'
+        // la generazione successiva riparte pulita (solo un errore recente
+        // dentro ERR_WINDOW_MS vale ancora come "premise di retry").
+        if (mode != 2) {
+            try {
+                getSharedPreferences("unsloth", MODE_PRIVATE).edit()
+                        .putLong("gen_err_ts", 0L).apply();
+            } catch (Exception e) {
+            }
+        }
     }
 
     // Notifica "risposta pronta" (toccabile). E' static perche' la manda anche
@@ -295,6 +396,12 @@ public class GenService extends Service {
     // opzionali: con il tap si apre la chat corrispondente e il testo mostra
     // il titolo della chat; se assenti si apre l'app normale.
     public static void postResponseReady(Context ctx, String threadId, String title) {
+        postResponseReady(ctx, threadId, title, 0);
+    }
+
+    // v3.1: mode 0 = completamento normale; 1 = completato dopo errore+retry;
+    // 2 = terminato con errore (nessun retry): il testo lo dice.
+    public static void postResponseReady(Context ctx, String threadId, String title, int mode) {
         try {
             ensureChannels(ctx);
             NotificationManager nm = (NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE);
@@ -310,11 +417,27 @@ public class GenService extends Service {
             } else {
                 b = new Notification.Builder(ctx, "Unsloth");
             }
+            String nt;
+            String txt;
+            if (mode == 2) {
+                nt = ctx.getString(R.string.notif_ready_title_error);
+                txt = (title == null || title.isEmpty())
+                        ? ctx.getString(R.string.notif_ready_text_error_default)
+                        : "\u00AB" + title + "\u00BB" + ctx.getString(R.string.notif_ready_suffix_error);
+            } else if (mode == 1) {
+                nt = ctx.getString(R.string.notif_ready_title);
+                txt = (title == null || title.isEmpty())
+                        ? ctx.getString(R.string.notif_ready_text_default)
+                        : "\u00AB" + title + "\u00BB" + ctx.getString(R.string.notif_ready_suffix_retry);
+            } else {
+                nt = ctx.getString(R.string.notif_ready_title);
+                txt = (title == null || title.isEmpty())
+                        ? ctx.getString(R.string.notif_ready_text_default)
+                        : "\u00AB" + title + "\u00BB" + ctx.getString(R.string.notif_ready_suffix);
+            }
             b.setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(ctx.getString(R.string.notif_ready_title))
-                    .setContentText((title == null || title.isEmpty())
-                            ? ctx.getString(R.string.notif_ready_text_default)
-                            : "\u00AB" + title + "\u00BB" + ctx.getString(R.string.notif_ready_suffix))
+                    .setContentTitle(nt)
+                    .setContentText(txt)
                     .setContentIntent(pi)
                     .setAutoCancel(true);
             nm.notify(2, b.build());
@@ -357,11 +480,30 @@ public class GenService extends Service {
             }
             // Al tap apre la chat del thread in generazione (extra "threadId");
             // il testo mostra il titolo della chat quando e' stato letto.
+            // v3.1: dopo un errore (evento SSE run.failed) il titolo cambia:
+            // "generazione fallita" finche' non parte il retry di Studio,
+            // "riprova dopo errore" quando il run nuovo e' attivo.
+            String nt;
+            if (mErrorRetried) {
+                nt = getString(R.string.notif_gen_title_retry);
+            } else if (mHadError) {
+                nt = getString(R.string.notif_gen_title_failed);
+            } else {
+                nt = getString(R.string.notif_gen_title);
+            }
+            String suffix;
+            if (mErrorRetried) {
+                suffix = getString(R.string.notif_gen_suffix_retry);
+            } else if (mHadError) {
+                suffix = getString(R.string.notif_gen_suffix_failed);
+            } else {
+                suffix = getString(R.string.notif_gen_suffix);
+            }
             return b.setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(getString(R.string.notif_gen_title))
+                    .setContentTitle(nt)
                     .setContentText(mThreadTitle.isEmpty()
                             ? getString(R.string.notif_gen_text_default)
-                            : "\u00AB" + mThreadTitle + "\u00BB" + getString(R.string.notif_gen_suffix))
+                            : "\u00AB" + mThreadTitle + "\u00BB" + suffix)
                     .setContentIntent(openChatIntent())
                     .setOngoing(true)
                     .build();

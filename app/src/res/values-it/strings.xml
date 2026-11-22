@@ -45,7 +45,7 @@
     <!-- Changelog (v3.0.1) -->
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Chiudi</string>
-    <string name="changelog_current">v3.0.1\n- Banner \"Generazione in corso…\": sempre in primo piano sulla pagina Studio (z-index aumentato).\n- Credits: link di contatto visibile in tema scuro (bianco su scuro, verde su chiaro).\n- Credits: nuovo bottone \"Changelog\" che apre il changelog su GitHub.\n- Primo avvio di una versione nuova: questa schermata changelog, mostrata una volta per versione.\n- Credits: il link \"Changelog\" è diventato un bottone; schermata changelog e bottone Chiudi tradotti in italiano.</string>
+    <string name="changelog_current">v3.1\n- Notifiche: sempre una sola. A fine generazione la notifica \"in corso\" viene cancellata e al suo posto appare \"risposta pronta\", con il nome della sessione.\n- Se la generazione finisce con errore o c\'è stata una riprova, la notifica lo dice.\n- Rientro in app: la tastiera resta sempre chiusa.\n- \"Torna alla chat\": ora apre sempre l\'ultima chat, non una chat nuova.</string>
 
     <!-- Options panel -->
     <string name="options_title">Opzioni</string>
@@ -101,6 +101,14 @@
     <string name="notif_gen_title">Unsloth: generazione in corso</string>
     <string name="notif_gen_text_default">L\'app mantiene la generazione attiva in background</string>
     <string name="notif_gen_suffix"> - generazione in corso</string>
+    <string name="notif_gen_title_failed">Unsloth: generazione fallita</string>
+    <string name="notif_gen_suffix_failed"> - generazione fallita, riprova dall\'app</string>
+    <string name="notif_gen_title_retry">Unsloth: riprova dopo errore</string>
+    <string name="notif_gen_suffix_retry"> - generazione riprovata dopo un errore</string>
+    <string name="notif_ready_title_error">Unsloth: generazione finita con errore</string>
+    <string name="notif_ready_text_error_default">La generazione è finita con errore, apri l\'app per controllarla e riprovare</string>
+    <string name="notif_ready_suffix_error"> - generazione finita con errore, riprova dall\'app</string>
+    <string name="notif_ready_suffix_retry"> - risposta pronta (dopo un errore, generazione riprovata)</string>
     <string name="channel_gen">Generazione</string>
     <string name="channel_gen_desc">Mantiene la generazione attiva in background</string>
     <string name="channel_done">Risposta pronta</string>

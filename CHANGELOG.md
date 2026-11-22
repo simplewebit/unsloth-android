@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.1
+
+- Notifications: only one notification at a time. When the reply is ready, the "generation in progress" notification is cancelled and replaced by the "reply ready" notification.
+- Notifications: the session (chat) name is now shown in both the "generation in progress" and "reply ready" notifications.
+- Notifications: when a generation ends in error and Studio retries, the notification says so: "generation failed, retry from the app" while waiting for the retry, "reply ready (after an error, generation retried)" when the retried generation finishes, "generation ended in error" if no retry happens.
+- Keyboard: the soft keyboard is now always closed when re-entering the chat (app resume, "Back to chat" button, notification tap).
+- "Back to chat" button: fixed — it now opens the last chat directly instead of walking the WebView history, which often landed on a page that created a new chat.
+- Version: 3.1 / versionCode 16 everywhere (manifest, APP_VERSION, Credits).
+
 ## 3.0.1
 
 - Update banner "Generating response…": raised z-index (999999) so it always stays on top of the Studio page content.

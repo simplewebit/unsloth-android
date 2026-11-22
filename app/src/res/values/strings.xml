@@ -60,7 +60,7 @@
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Close</string>
     <!-- Novità della versione corrente: aggiornare a ogni nuova versione. -->
-    <string name="changelog_current">v3.0.1\n- Generation banner "Generating response...": now always on top of the Studio page (raised z-index).\n- Credits: contact link visible in the dark theme (white on dark, green on light).\n- Credits: new "Changelog" button opening the GitHub changelog.\n- First launch of a new version: this changelog screen, shown once per version.\n- Changelog screen and Close button translated into Italian (Close / Chiudi).</string>
+    <string name="changelog_current">v3.1\n- Notifications: always just one. When generation finishes, the ongoing notification is replaced by "reply ready", including the session name.\n- If generation ended in error or was retried, the notification says so.\n- Re-entering the app: the keyboard stays closed.\n- "Back to chat": now always opens the last chat, not a new one.</string>
 
     <!-- Log panel -->
     <string name="download_log">Download log</string>
@@ -101,6 +101,14 @@
     <string name="notif_gen_title">Unsloth: generation in progress</string>
     <string name="notif_gen_text_default">The app keeps the generation active in the background</string>
     <string name="notif_gen_suffix"> - generation in progress</string>
+    <string name="notif_gen_title_failed">Unsloth: generation failed</string>
+    <string name="notif_gen_suffix_failed"> - generation failed, retry from the app</string>
+    <string name="notif_gen_title_retry">Unsloth: retry after error</string>
+    <string name="notif_gen_suffix_retry"> - generation retried after an error</string>
+    <string name="notif_ready_title_error">Unsloth: generation ended in error</string>
+    <string name="notif_ready_text_error_default">Generation ended in error, open the app to check and retry</string>
+    <string name="notif_ready_suffix_error"> - generation ended in error, retry from the app</string>
+    <string name="notif_ready_suffix_retry"> - reply ready (after an error, generation retried)</string>
     <string name="channel_gen">Generation</string>
     <string name="channel_gen_desc">Keeps the generation active in the background</string>
     <string name="channel_done">Reply ready</string>
