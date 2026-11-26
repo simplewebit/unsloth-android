@@ -171,6 +171,9 @@ public class MainActivity extends AppCompatActivity {
     // non ri-sincronizziamo (niente svuotamento IndexedDB / reload) per non distruggere
     // la chat in corso. Robusto anche con piu' cicli onResume/screen-on dentro la finestra.
     private static final long GEN_WINDOW_MS = 10 * 60 * 1000L;
+    // Cooldown minimo tra un resync e l'altro (30 s): schermo acceso +
+    // generazione finita + rientro in primo piano non devono far reload.
+    private static final long RESYNC_COOLDOWN_MS = 30 * 1000L;
     private volatile long mGenStartMs = 0;
     // Id del run avviato da questo telefono (catturato dal polling
     // /chat-runs/<id>/events): cosi un run "mio" resta riconosciuto come mio
@@ -184,6 +187,8 @@ public class MainActivity extends AppCompatActivity {
     private volatile long mSuspendTs = 0;
     // Ultimo resync "gen-finita": evita raddoppi se onResume riparte piu' volte.
     private volatile long mGenResyncTs = 0;
+    // Ultimo resync generale (cooldown): evita reload a raffica tra trigger diversi.
+    private volatile long mLastResyncTs = 0;
 
     private boolean isRecentGen() {
         return mGenStartMs != 0 && (System.currentTimeMillis() - mGenStartMs) < GEN_WINDOW_MS;
@@ -266,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "3.3";
+    static final String APP_VERSION = "3.3.1";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -1759,30 +1764,28 @@ public class MainActivity extends AppCompatActivity {
         webView.evaluateJavascript(js, null);
     }
 
-    // Schermo acceso in una chat: prima del resync rinnovo il token dai
-    // prefs (il keepalive lo tiene fresco), cosi la pagina riparte con un
-    // access token valido e resta nella chat invece di cadere sul login.
-    // Il refresh della SPA da solo non basta: dopo 50 min il keepalive ha
-    // gia' ruotato il refresh token nei prefs e quello della pagina e'
-    // morto (rotazione monouso), quindi la SPA finirebbe su /login.
-    // Se il refresh e' rifiutato (logout o sessione morta) svuoto lo stato
-    // locale e vado al login, come fa la SPA stessa; un errore di rete non
-    // tocca lo stato locale e faccio il resync normale.
+    // Schermo acceso in una chat: rinnovo il token dai prefs (il keepalive
+    // lo tiene fresco) e inietto quello fresco nella pagina, cosi' il
+    // localStorage non resta stantio/morto. NON re-sincronizzo: niente
+    // reload, niente clearCache, niente svuotamento IndexedDB. La pagina
+    // resta dove era; gli ultimi messaggi li mostra la SPA. Se il refresh
+    // e' rifiutato (logout o sessione morta) svuoto lo stato locale e vado
+    // al login, come fa la SPA stessa; un errore di rete lascia la pagina
+    // com'e' e non tocca lo stato locale.
     private void wakeRefreshThenResync() {
         String pageUrl = webView.getUrl();
         if (pageUrl == null || !pageUrl.contains("chat")) {
-            autoResync("screen-on");
+            App.log("AUTH-WAKE: non su una chat, salto");
             return;
         }
         String base = currentUrl;
         if (base == null || base.isEmpty()) {
-            autoResync("screen-on");
+            App.log("AUTH-WAKE: base url assente, salto");
             return;
         }
         String rtPrefs = getSharedPreferences(PREFS, MODE_PRIVATE).getString("auth_refresh", "");
         if (rtPrefs.isEmpty()) {
-            App.log("AUTH-WAKE: nessun refresh nei prefs, resync normale");
-            autoResync("screen-on");
+            App.log("AUTH-WAKE: nessun refresh nei prefs, salto");
             return;
         }
         new Thread(() -> {
@@ -1802,8 +1805,7 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 if (code != 200) {
-                    App.log("AUTH-WAKE: refresh HTTP " + code + ", resync normale");
-                    runOnUiThread(() -> autoResync("screen-on"));
+                    App.log("AUTH-WAKE: refresh HTTP " + code + ", salto resync");
                     return;
                 }
                 java.io.InputStream in = c.getInputStream();
@@ -1815,8 +1817,7 @@ public class MainActivity extends AppCompatActivity {
                 final String fat = j.optString("access_token");
                 final String fnrt = j.optString("refresh_token");
                 if (fat.isEmpty() || fnrt.isEmpty()) {
-                    App.log("AUTH-WAKE: 200 senza token, resync normale");
-                    runOnUiThread(() -> autoResync("screen-on"));
+                    App.log("AUTH-WAKE: 200 senza token, salto resync");
                     return;
                 }
                 App.log("AUTH-WAKE: refresh ok, inietto il token fresco");
@@ -1827,11 +1828,10 @@ public class MainActivity extends AppCompatActivity {
                     String js = "(function(){try{localStorage.setItem('unsloth_auth_token','" + fat + "');" +
                             "localStorage.setItem('unsloth_auth_refresh_token','" + fnrt + "');}catch(e){}})()";
                     webView.evaluateJavascript(js, null);
-                    autoResync("screen-on");
+                    App.log("AUTH-WAKE: token fresco iniettato, resto sulla pagina");
                 });
             } catch (Exception e) {
-                App.log("AUTH-WAKE: refresh errore " + e.getMessage() + ", resync normale");
-                runOnUiThread(() -> autoResync("screen-on"));
+                App.log("AUTH-WAKE: refresh errore " + e.getMessage() + ", salto resync");
             }
         }).start();
     }
@@ -2439,6 +2439,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void autoResync(String why) {
+        // Cooldown generale: non ri-sincronizzare se l'ultimo resync
+        // e' successo da pochissimo. Evita che trigger diversi in rapida
+        // successione (schermo acceso + generazione finita + rientro)
+        // fanno un reload subito dopo l'altro.
+        long last = mLastResyncTs;
+        if (System.currentTimeMillis() - last < RESYNC_COOLDOWN_MS) {
+            App.log("RESYNC auto (" + why + "): cooldown, salto");
+            return;
+        }
+        mLastResyncTs = System.currentTimeMillis();
         String pageUrl = webView.getUrl();
         if (pageUrl == null || !pageUrl.contains("chat")) {
             App.log("RESYNC auto (" + why + "): non su una chat, salto");

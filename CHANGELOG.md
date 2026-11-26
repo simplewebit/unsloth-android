@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.3.1
+
+- Screen-on no longer reloads the chat page: re-entering a chat with the screen on only refreshes the access token, and the page stays where it was (no clearCache, no IndexedDB wipe, no reload).
+- Anti-resync cooldown: a reload at most once every 30 seconds, so screen-on, generation-finished and re-entry cannot trigger back-to-back reloads.
+- Version: 3.3.1 / versionCode 19 everywhere (manifest, APP_VERSION, Credits page).
+
 ## 3.3
 
 - Network switch: the app re-resolves the host on every WiFi/mobile change and reloads the page keeping the current path/query (only when the host actually changes and the app is in the foreground; no reload if a generation is in progress).
