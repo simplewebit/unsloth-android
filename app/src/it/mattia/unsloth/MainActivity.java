@@ -256,7 +256,7 @@ public class MainActivity extends AppCompatActivity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "3.1";
+    static final String APP_VERSION = "3.2";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -679,6 +679,7 @@ public class MainActivity extends AppCompatActivity {
         btnChat.setOnClickListener(v -> {
             drawerLayout.closeDrawer(Gravity.START);
             hideKeyboard();
+            lockKeyboardSoon(); // v3.3: chiusa anche se la SPA rifocalizza il composer (focusin listener)
             if (currentUrl == null) return;
             mErrorActive = false;
             errorPanel.setVisibility(View.GONE);
@@ -964,6 +965,8 @@ public class MainActivity extends AppCompatActivity {
                     healAndOpenLive();
                 }
                 restoreScrollIfResuming(url);
+                if (url != null && url.contains("/chat")) lockKeyboardSoon(); // v3.3: chiusa anche se la SPA rifocalizza il composer
+                else hideKeyboardSoon();
             }
         });
 
@@ -1776,6 +1779,8 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {
         }
         hideKeyboard();
+        if (mPageUrl != null && mPageUrl.contains("/chat")) lockKeyboardSoon(); // v3.3: chiusa anche se la SPA rifocalizza il composer
+        else hideKeyboardSoon();
         // v3.0: marker del crash guard (file in getFilesDir): ora dell'ultimo
         // primo piano; e allarme ripetuto (~30 s) attivo finche l'app e' in
         // uso: se il processo muore, l'allarme riparte il processo e
@@ -1902,6 +1907,25 @@ public class MainActivity extends AppCompatActivity {
                         @Override
                         public void run() {
                             try {
+                                // v3.2: se sono sulla stessa chat (e un tap
+                                // sulla notifica porta gia' quel thread), non
+                                // ricarico: niente reload completo che riapre
+                                // la tastiera. Chiudo la tastiera e resto
+                                // dove sono.
+                                String curTid = currentThreadId();
+                                if (fid.equals(curTid)) {
+                                    App.log("OPEN-THREAD: gia' sulla stessa chat, niente reload");
+                                    mErrorActive = false;
+                                    errorPanel.setVisibility(View.GONE);
+                                    logPanel.setVisibility(View.GONE);
+                                    creditsPanel.setVisibility(View.GONE);
+                                    optionsPanel.setVisibility(View.GONE);
+                                    webView.setVisibility(View.VISIBLE);
+                                    updateBar();
+                                    hideKeyboard();
+                                    lockKeyboardSoon();
+                                    return;
+                                }
                                 String target = currentUrl + "/chat?thread="
                                         + java.net.URLEncoder.encode(fid, "UTF-8");
                                 mErrorActive = false;
@@ -1912,6 +1936,7 @@ public class MainActivity extends AppCompatActivity {
                                 webView.setVisibility(View.VISIBLE);
                                 updateBar();
                                 hideKeyboard(); // v3.1: tastiera chiusa al rientro
+                                lockKeyboardSoon(); // v3.3: chiusa anche dopo la navigazione
                                 webView.loadUrl(target);
                             } catch (Exception e) {
                                 App.log("OPEN-THREAD: errore nav " + e.getMessage());
@@ -2066,6 +2091,50 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
         }
     }
+
+    // v3.2: dopo un rientro o una navigazione la SPA tende a rifocalizzare il
+    // composer al mount (onPageFinished/onPageCommitVisible): chiudo la
+    // tastiera soft anche con ritardi brevi per catturare quella
+    // rifocalizzazione. I ritardi sono brevi e non ripetuti altrove.
+    private void hideKeyboardSoon() {
+        final long[] delays = {250L, 900L, 2000L};
+        for (long d : delays) {
+            new android.os.Handler(getMainLooper()).postDelayed(() -> {
+                try {
+                    getWindow().setSoftInputMode(
+                            WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+                } catch (Exception ignored) {
+                }
+                hideKeyboard();
+                try {
+                    webView.evaluateJavascript("try {"
+                            + "var a = document.activeElement;"
+                            + "if (a) {"
+                            + " var t = a.tagName;"
+                            + " var ce = a.getAttribute('contenteditable');"
+                            + " if (t === 'INPUT' || t === 'TEXTAREA'"
+                            + "   || (ce && ce !== 'false')) a.blur();"
+                            + "} } catch(e) {}", null);
+                } catch (Exception ignored) {
+                }
+            }, d);
+        }
+    }
+
+    // v3.3: chiusura aggressiva della tastiera al rientro in chat. La SPA
+    // rifocalizza il composer anche con ritardo (e cambia chat in-page,
+    // senza onPageFinished): armiamo un lock di 5 s. Un focusin listener
+    // iniettato in JS blura subito qualsiasi input/textarea che entra in
+    // focus fino alla scadenza. Dopo la scadenza la tastiera si riapre.
+    // Il lock si arma anche in-page via rp() in injectUrlReporter.
+    private void lockKeyboardSoon() {
+        hideKeyboardSoon();
+        try {
+            webView.evaluateJavascript("try { if (window.__armKbLock) window.__armKbLock(5000); } catch(e) {}", null);
+        } catch (Exception ignored) {
+        }
+    }
+
 
     // v3.1: titolo del thread (GET /api/chat/threads/<id>) per la notifica
     // "risposta pronta" quando il service non ha segnato il completamento.
@@ -2231,7 +2300,7 @@ public class MainActivity extends AppCompatActivity {
     // "cross-client" con banner e blocco invio.
     private boolean isMyRun(org.json.JSONArray runs) {
         String id = mMyRunId;
-        if (id == null || id.isEmpty()) return false;
+        if (id == null || id.isEmpty() || runs == null) return false;
         for (int i = 0; i < runs.length(); i++) {
             org.json.JSONObject o = runs.optJSONObject(i);
             if (o != null && id.equals(o.optString("id"))) return true;
@@ -2278,9 +2347,57 @@ public class MainActivity extends AppCompatActivity {
             while ((line = r.readLine()) != null) sb.append(line);
             org.json.JSONObject j = new org.json.JSONObject(sb.toString());
             org.json.JSONArray runs = j.optJSONArray("runs");
-            final boolean active = runs != null && runs.length() > 0;
+            final boolean chatActive = runs != null && runs.length() > 0;
+            // v3.2: secondo segnale — /api/inference/active-generations.
+            // L'app desktop fa l'inferenza via /v1/chat/completions e NON crea
+            // chat-runs (/chat-runs/active non le mostra): questo endpoint le
+            // mostra (entry: thread_id, run_id, kind, account_id).
+            // - genForThread: entry del thread corrente -> run esterno
+            // - anyGen: fallback count>0 (generazione attiva in questa installazione)
+            // - myGen: run_id == mMyRunId -> run partito da questo telefono
+            boolean genThreadMatch = false;
+            boolean anyGen = false;
+            boolean myGen = false;
+            java.net.HttpURLConnection gc = null;
+            try {
+                java.net.URL gu = new java.net.URL(base + "/api/inference/active-generations");
+                gc = (java.net.HttpURLConnection) gu.openConnection();
+                gc.setRequestProperty("Authorization", "Bearer " + tok);
+                gc.setConnectTimeout(15000);
+                gc.setReadTimeout(20000);
+                int gcode = gc.getResponseCode();
+                if (gcode == 200) {
+                    java.io.BufferedReader gr = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(gc.getInputStream(), "UTF-8"));
+                    StringBuilder gsb = new StringBuilder();
+                    String gline;
+                    while ((gline = gr.readLine()) != null) gsb.append(gline);
+                    org.json.JSONObject gj = new org.json.JSONObject(gsb.toString());
+                    org.json.JSONArray gens = gj.optJSONArray("active");
+                    int gcount = gj.optInt("count", 0);
+                    final String mId = mMyRunId;
+                    if (gens != null) {
+                        for (int i = 0; i < gens.length(); i++) {
+                            org.json.JSONObject g = gens.optJSONObject(i);
+                            if (g == null) continue;
+                            String gt = g.optString("thread_id", "");
+                            String grid = g.optString("run_id", "");
+                            if (!tid.isEmpty() && tid.equals(gt)) genThreadMatch = true;
+                            if (!grid.isEmpty() && mId != null && mId.equals(grid)) myGen = true;
+                        }
+                    }
+                    if (gcount > 0) anyGen = true;
+                } else {
+                    App.log("RUN-POLL: active-generations risponde " + gcode);
+                }
+            } catch (Exception e2) {
+                App.log("RUN-POLL: active-generations errore " + e2.getMessage());
+            } finally {
+                if (gc != null) gc.disconnect();
+            }
+            final boolean active = chatActive || genThreadMatch || anyGen;
             if (active) {
-                if (isMyRun(runs) || isRecentGen()) {
+                if (isMyRun(runs) || isRecentGen() || myGen) {
                     // Run avviato da questo telefono (id == mMyRunId oppure
                     // partenza recente): il UI di Studio lo mostra gia' in
                     // corso, niente blocco: l'input resta libero e i messaggi
@@ -2301,14 +2418,22 @@ public class MainActivity extends AppCompatActivity {
                     mSawActiveThread = tid;
                     if (!mRunActive) {
                         mRunActive = true;
-                        App.log("RUN-POLL: run cross-client attivo nel thread " + tid);
+                        String segnale = chatActive ? "chat-run" : (genThreadMatch ? "thread match" : "fallback count>0");
+                        App.log("RUN-POLL: run cross-client attivo nel thread " + tid + " [" + segnale + "]");
                     }
                     // v2.7: mirroring. Apri l'SSE nativo del run esterno:
                     // streamma i chunk nel banner e tiene il run vivo
                     // (follower "attento", stopWhenUnattended). Se e' un run
                     // diverso da quello gia' aperto, riparte da zero:
-                    // cursore azzerato e testo azzerato.
-                    final String extId = runs.getJSONObject(0).optString("id", "");
+                    // cursore azzerato e testo azzerato. Solo per i run con
+                    // id chat-run: i run visibili solo via active-generations
+                    // (partiti dal desktop) non hanno id chat-run, il banner
+                    // e il lock si fanno lo stesso.
+                    String extId = "";
+                    if (runs != null && runs.length() > 0) {
+                        org.json.JSONObject first = runs.optJSONObject(0);
+                        if (first != null) extId = first.optString("id", "");
+                    }
                     if (!extId.isEmpty() && !extId.equals(mMirrorRunId)) {
                         mMirrorAfter = 0;
                         synchronized (mMirrorText) { mMirrorText.setLength(0); }
@@ -2493,8 +2618,8 @@ public class MainActivity extends AppCompatActivity {
                         + "@keyframes unslothGenSpin{to{transform:rotate(360deg)}}"
                         + ".unsloth-gen-spin svg{animation:unslothGenSpin .9s linear infinite}"
                         + ".unsloth-gen-txt{display:flex;flex-direction:column}"
-                        + ".unsloth-gen-main{color:#fff;font-weight:700;font-size:18px;line-height:1.25}"
-                        + ".unsloth-gen-sub{color:rgba(255,255,255,.85);font-size:13px;margin-top:2px}';"
+                        + ".unsloth-gen-main{color:#fff;font-weight:700;font-size:clamp(11px,3.4vw,17px);line-height:1.3;text-align:center}"
+                        + ".unsloth-gen-sub{color:rgba(255,255,255,.85);font-size:clamp(10px,2.8vw,12px);margin-top:4px;text-align:center}';"
                         + "document.head.appendChild(st);window.__unslothGenStyle=true;}"
                         + "var c=document.querySelector('.unsloth-composer-surface');"
                         + "if(!c)return 'no-surface';"
@@ -3223,7 +3348,31 @@ public class MainActivity extends AppCompatActivity {
         String js = "(function(){" +
                 "if (window.__unslothUrl) return;" +
                 "window.__unslothUrl = true;" +
-                "var rp = function(){ try { UnslothBridge.reportUrl(location.href); } catch(e){} };" +
+                "var rp = function(){" +
+                "  try { UnslothBridge.reportUrl(location.href); } catch(e){}" +
+                "  try {" +
+                "    var h = location.pathname + location.search + location.hash;" +
+                "    if (h.indexOf('/chat') >= 0 && window.__armKbLock) window.__armKbLock(5000);" +
+                "  } catch(e){}" +
+                "};" +
+                "window.__armKbLock = function(ms){" +
+                "  try {" +
+                "    if (!window.__kbLockInstalled) {" +
+                "      window.__kbLockInstalled = true;" +
+                "      document.addEventListener('focusin', function(e){" +
+                "        try {" +
+                "          if (Date.now() > (window.__kbLockUntil || 0)) return;" +
+                "          var t = e.target && e.target.tagName;" +
+                "          var ce = e.target && e.target.getAttribute && e.target.getAttribute('contenteditable');" +
+                "          if (t === 'INPUT' || t === 'TEXTAREA' || (ce && ce !== 'false')) {" +
+                "            try { e.target.blur(); } catch(e2) {}" +
+                "          }" +
+                "        } catch(e3) {}" +
+                "      }, true);" +
+                "    }" +
+                "    window.__kbLockUntil = Date.now() + (ms || 5000);" +
+                "  } catch(e){}" +
+                "};" +
                 "var op = history.pushState, orp = history.replaceState;" +
                 "history.pushState = function(){ var r = op.apply(this, arguments); rp(); return r; };" +
                 "history.replaceState = function(){ var r = orp.apply(this, arguments); rp(); return r; };" +

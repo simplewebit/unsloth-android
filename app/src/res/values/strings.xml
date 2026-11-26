@@ -10,8 +10,8 @@
     <string name="refresh">Refresh</string>
     <string name="settings">Settings</string>
     <string name="show_log">Show log</string>
-    <string name="gen_main">Generating response…</string>
-    <string name="gen_wait">Please wait</string>
+    <string name="gen_main">Generation started by another device</string>
+    <string name="gen_wait">Wait for it to finish</string>
 
     <!-- Drawer -->
     <string name="chat">Back to chat</string>
@@ -60,7 +60,7 @@
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Close</string>
     <!-- Novità della versione corrente: aggiornare a ogni nuova versione. -->
-    <string name="changelog_current">v3.1\n- Notifications: always just one. When generation finishes, the ongoing notification is replaced by "reply ready", including the session name.\n- If generation ended in error or was retried, the notification says so.\n- Re-entering the app: the keyboard stays closed.\n- "Back to chat": now always opens the last chat, not a new one.</string>
+    <string name="changelog_current">v3.2\n- Phone and other devices stay in sync: a run started on another device (e.g. the desktop app) no longer shows the error box. The phone shows the banner instead, blocks sending, and follows the run to its end.\n- Banner text: \"Generation started by another device\" with a small \"Wait for it to finish\" underneath.\n- Keyboard: soft keyboard stays closed on chat re-entry (notification tap on the same chat no longer reloads the page; otherwise the keyboard is hidden after the reload, and a focus listener + 5 s lock blur any input that regains focus in the meantime; the lock is also armed on every in-page route change so the composer cannot take focus after an in-page chat switch).</string>
 
     <!-- Log panel -->
     <string name="download_log">Download log</string>

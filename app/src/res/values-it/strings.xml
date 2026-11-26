@@ -9,8 +9,8 @@
     <string name="refresh">Aggiorna</string>
     <string name="settings">Impostazioni</string>
     <string name="show_log">Mostra log</string>
-    <string name="gen_main">Risposta in generazione…</string>
-    <string name="gen_wait">Attendi</string>
+    <string name="gen_main">Generazione avviata da altro dispositivo</string>
+    <string name="gen_wait">Attendi la fine</string>
 
     <!-- Drawer -->
     <string name="home">Home</string>
@@ -42,10 +42,10 @@
     <string name="developer_contact">www.simpleweb.it - mattia.digiuseppe@simpleweb.it</string>
     <string name="website">https://www.simpleweb.it</string>
 
-    <!-- Changelog (v3.0.1) -->
+    <!-- Changelog (v3.2) -->
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Chiudi</string>
-    <string name="changelog_current">v3.1\n- Notifiche: sempre una sola. A fine generazione la notifica \"in corso\" viene cancellata e al suo posto appare \"risposta pronta\", con il nome della sessione.\n- Se la generazione finisce con errore o c\'è stata una riprova, la notifica lo dice.\n- Rientro in app: la tastiera resta sempre chiusa.\n- \"Torna alla chat\": ora apre sempre l\'ultima chat, non una chat nuova.</string>
+    <string name="changelog_current">v3.2\n- Sincronizzazione con gli altri dispositivi: un run partito da un altro dispositivo (come l\'app desktop) non mostra più la box errore sul telefono. Il telefono mostra il banner, blocca l\'invio e segue il run fino alla fine.\n- Testo del banner: \"Generazione avviata da altro dispositivo\" con \"Attendi la fine\" in piccolo sotto.\n- Tastiera: la tastiera soft resta chiusa al rientro in chat (un tap sulla notifica sulla stessa chat non ricarica più la pagina; in caso contrario la tastiera si chiude dopo il ricaricamento e un listener focus + blocco di 5 s toglie il focus a qualsiasi input che riprende a ricevere focus nel frattempo; il blocco si arma anche a ogni cambio di rotta in-page, così il composer non riprende il focus dopo il cambio chat).</string>
 
     <!-- Options panel -->
     <string name="options_title">Opzioni</string>

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.2
+
+- Phone and other devices stay in sync: a run started on another device (e.g. the desktop app) no longer shows the error box on the phone — the phone now shows the banner instead, blocks sending and follows the run to its end.
+- Fix: desktop-started runs (which never create chat-runs) are now detected via `GET /api/inference/active-generations`.
+- Banner text: "Generation started by another device" with a small "Wait for it to finish" underneath (Italian: "Generazione avviata da altro dispositivo" / "Attendi la fine").
+- Keyboard: soft keyboard stays closed on chat re-entry. If already on the same chat, a notification tap no longer reloads the page (no reload, keyboard stays closed); otherwise the reload happens but the keyboard is hidden afterwards (250 / 900 / 2000 ms, with a JS blur of the focused composer). A focusin listener + a 5 s lock blur any input that regains focus in the meantime; the lock is also armed on every in-page route change (pushState/replaceState/popstate) so the composer can't take focus after an in-page chat switch.
+- Version: 3.2 / versionCode 17 everywhere (manifest, APP_VERSION, Credits).
+
 ## 3.1
 
 - Notifications: only one notification at a time. When the reply is ready, the "generation in progress" notification is cancelled and replaced by the "reply ready" notification.
