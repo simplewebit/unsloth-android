@@ -14,6 +14,9 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.LocaleList;
@@ -51,6 +54,7 @@ import androidx.drawerlayout.widget.DrawerLayout;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
@@ -185,6 +189,8 @@ public class MainActivity extends AppCompatActivity {
         return mGenStartMs != 0 && (System.currentTimeMillis() - mGenStartMs) < GEN_WINDOW_MS;
     }
     // All'avvio: aprire da solo il thread più recente dal server (una volta per connessione).
+    // Pending sidebar-open dopo una nuova chat nata da una pagina non-chat (ts).
+    private volatile long mAutoOpenSidebarTs = 0;
     private volatile boolean mAutoOpenPending = false;
     // Il thread vivo e' stato aperto o confermato da openLiveThread: evita di
     // rilanciare healAndOpenLive a ogni pushState della SPA.
@@ -223,6 +229,10 @@ public class MainActivity extends AppCompatActivity {
     // chiamare webView.getUrl(), che fuori dal thread UI lancia un'eccezione
     // (violation StrictMode WebViewMethodCalledOnWrongThread).
     private volatile String mPageUrl = "";
+    // v3.2: cambio di rete -> ri-resolve l'host e ricarica la pagina (IP/DDNS).
+    private ConnectivityManager mConnectivityManager;
+    private ConnectivityManager.NetworkCallback mNetworkCallback;
+    private volatile long mLastNetSwitchMs = 0;
     private Thread mRunPollThread;
     private Button mBtnRetry;
 
@@ -256,7 +266,7 @@ public class MainActivity extends AppCompatActivity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "3.2";
+    static final String APP_VERSION = "3.3";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -664,7 +674,7 @@ public class MainActivity extends AppCompatActivity {
             // Download del log: FileProvider (gia' nel manifest) + intent
             // ACTION_SEND con chooser, cosi il file si allega a email/issue.
             View btnDownloadLog = findViewById(R.id.btn_download_log);
-            btnDownloadLog.setOnClickListener(v -> shareLog());
+            btnDownloadLog.setOnClickListener(v -> saveLogToDownloads());
             // v2.9: svuota crash.log dal pannello Log.
             View btnClearLog = findViewById(R.id.btn_clear_log);
             btnClearLog.setOnClickListener(v -> clearLog());
@@ -735,7 +745,14 @@ public class MainActivity extends AppCompatActivity {
         View btnProjectsSessions = findViewById(R.id.btn_projects_sessions);
         btnProjectsSessions.setOnClickListener(v -> {
             drawerLayout.closeDrawer(Gravity.START);
-            openSpaSidebar();
+            if (isInChatView()) {
+                openSpaSidebarDelayed(0);
+            } else {
+                // Fuori da una chat (log, pannello, pagina interna): apri una nuova
+                // chat e, quando la pagina e' pronta, apri la barra (come in chat).
+                mAutoOpenSidebarTs = System.currentTimeMillis();
+                openSpaPage("/chat?new=" + java.util.UUID.randomUUID());
+            }
         });
         // v2.5: voci del drawer sulle pagine SPA di Studio (route verificate nel
         // frontend: /hub = hub dei modelli, /images = immagini, /settings =
@@ -923,6 +940,9 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 mPageUrl = url;
+                if (mAutoOpenSidebarTs != 0 && (url == null || !url.contains("/chat"))) {
+                    mAutoOpenSidebarTs = 0;
+                }
                 injectBlobInterceptor();
                 injectUrlReporter();
                 injectComposerGuard();
@@ -964,6 +984,11 @@ public class MainActivity extends AppCompatActivity {
                     mAutoOpenPending = false;
                     healAndOpenLive();
                 }
+                if (mAutoOpenSidebarTs != 0 && url != null && !url.contains("/login")
+                        && (System.currentTimeMillis() - mAutoOpenSidebarTs < 30000)) {
+                    mAutoOpenSidebarTs = 0;
+                    openSpaSidebarDelayed(0);
+                }
                 restoreScrollIfResuming(url);
                 if (url != null && url.contains("/chat")) lockKeyboardSoon(); // v3.3: chiusa anche se la SPA rifocalizza il composer
                 else hideKeyboardSoon();
@@ -975,6 +1000,7 @@ public class MainActivity extends AppCompatActivity {
         // Run avviato dalla sessione precedente, ancora attivo: riapendolo
         // l'app lo riconosce come "mio" (niente banner cross-client).
         mMyRunId = prefs.getString("my_run_id", null);
+        setupNetworkCallback();
         String ip = prefs.getString("host", "");
         String ddns = prefs.getString("ddns", "");
         String port = prefs.getString("port", "8888");
@@ -1081,6 +1107,18 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // True se siamo dentro una chat vera (pagina SPA /chat) e nessun pannello locale e' aperto.
+    private boolean isInChatView() {
+        if (logPanel.getVisibility() == View.VISIBLE
+                || optionsPanel.getVisibility() == View.VISIBLE
+                || creditsPanel.getVisibility() == View.VISIBLE
+                || errorPanel.getVisibility() == View.VISIBLE
+                || changelogPanel.getVisibility() == View.VISIBLE) return false;
+        if (webView.getVisibility() != View.VISIBLE) return false;
+        String url = mPageUrl;
+        return url != null && url.contains("/chat");
+    }
+
     private void openOptions() {
         creditsPanel.setVisibility(View.GONE);
         optionsPanel.setVisibility(View.VISIBLE);
@@ -1145,18 +1183,51 @@ public class MainActivity extends AppCompatActivity {
                 + "if(l==='close sidebar'||l==='chiudi la barra laterale')return 'already-open';}"
                 + "return 'not-found: '+labels.slice(0,40).join('|');})()";
         webView.evaluateJavascript(js, value -> App.log("SIDEBAR-OPEN: " + value));
-        // Dopo 1.5 s leggo la larghezza del pannello sidebar per
-        // verificare che si e' davvero aperto (0/circa 0 = chiuso).
-        new android.os.Handler(getMainLooper()).postDelayed(() ->
+    }
+
+    // Apre la sidebar dell'SPA con ritardo e ritenta se il pannello non e'
+    // ancora visibile dopo il click (l'onPageFinished arriva quando la
+    // pagina e' montata ma prima che la SPA termini di montare i suoi
+    // componenti). Se dopo l'ultimo tentativo il pannello resta chiuso o
+    // la pagina non e' piu' /chat, si ferma.
+    private void openSpaSidebarDelayed(int attempt) {
+        App.log("SIDEBAR: tentativo " + attempt + " (pagina=" + mPageUrl + ")");
+        new android.os.Handler(getMainLooper()).postDelayed(() -> {
+            String u = mPageUrl;
+            if (u == null || !u.contains("/chat")) {
+                App.log("SIDEBAR: niente piu' /chat (" + u + "), stop retry");
+                return;
+            }
+            openSpaSidebar();
+            new android.os.Handler(getMainLooper()).postDelayed(() -> {
                 webView.evaluateJavascript(
                         "(function(){var p=document.querySelector('[data-slot=\"sidebar\"]');"
-                                + "if(p)return 'panel-w=' + Math.round(p.getBoundingClientRect().width);"
-                                + "var ds=document.querySelectorAll('[data-sidebar]');"
-                                + "var w=0;"
+                                + "if(p)return 'w=' + Math.round(p.getBoundingClientRect().width);"
+                                + "var ds=document.querySelectorAll('[data-sidebar]');var w=0;"
                                 + "for(var i=0;i<ds.length;i++){var r=ds[i].getBoundingClientRect();if(r.width>w)w=r.width;}"
-                                + "return 'sidebar-w=' + Math.round(w);})()",
-                        value -> App.log("SIDEBAR-STATE: " + value)),
-                1500);
+                                + "return 'w=' + Math.round(w);})()",
+                        value -> {
+                            String v = String.valueOf(value);
+                            App.log("SIDEBAR-RETRY-" + attempt + ": " + v);
+                            int w = parseSidebarWidth(v);
+                            if (w <= 10 && attempt < 5) {
+                                openSpaSidebarDelayed(attempt + 1);
+                            } else {
+                                App.log("SIDEBAR: stop (larghezza=" + w + ")");
+                            }
+                        });
+            }, 1500);
+        }, 1000);
+    }
+
+    private static int parseSidebarWidth(String v) {
+        int idx = v.indexOf('=');
+        if (idx < 0) return 0;
+        try {
+            return Integer.parseInt(v.substring(idx + 1).replaceAll("[^0-9]", ""));
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private void connectFromSettings() {
@@ -1184,12 +1255,143 @@ public class MainActivity extends AppCompatActivity {
         connect(ip, ddns, port);
     }
 
-    // v2.9: prova l'IP per primo e, se non risponde entro 10 s, il DDNS.
+    // v3.2: cambio di rete (WiFi attivo dopo l'off, mobile dopo il WiFi) o
+    // rientro in primo piano: ri-risolvo l'host con le regole correnti
+    // (mobile -> DDNS, altrimenti IP) e, se il base url e' cambiato,
+    // ricarico la pagina mantenendo path e querystring. In background non
+    // faccio niente (onResume lo rifa al rientro); e se c'e' una
+    // generazione in corso non ricarico per non perdere lo stream
+    // (currentUrl resta aggiornato).
+    private void maybeReloadHostOnChange() {
+        if (currentUrl == null || currentUrl.isEmpty()) {
+            App.log("RETE-SWITCH: skip, currentUrl vuoto o null");
+            return;
+        }
+        if (!mInForeground) {
+            App.log("RETE-SWITCH: skip, app in background");
+            return;
+        }
+        final String cur = currentUrl;
+        App.log("RETE-SWITCH: start cur=" + cur + " foreground=" + mInForeground);
+        final String ip, ddns, port;
+        try {
+            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            String tmpIp = p.getString("host", "");
+            String tmpDdns = p.getString("ddns", "");
+            String tmpPort = p.getString("port", "8888");
+            ip = tmpIp == null ? "" : tmpIp;
+            ddns = tmpDdns == null ? "" : tmpDdns;
+            port = tmpPort == null ? "8888" : tmpPort;
+        } catch (Exception e) {
+            App.log("RETE-SWITCH: errore lettura prefs " + e.getMessage());
+            return;
+        }
+        if (ip.isEmpty() && ddns.isEmpty()) {
+            App.log("RETE-SWITCH: skip, host/ddns vuoti nei prefs");
+            return;
+        }
+        final String hostIps = "ip=" + ip + " ddns=" + ddns + " port=" + port;
+        new Thread(() -> {
+            try {
+                App.log("RETE-SWITCH: thread resolve avviato " + hostIps);
+                String host = App.resolveHost(MainActivity.this, ip, ddns, port);
+                App.log("RETE-SWITCH: resolve -> host=" + host);
+                if (host == null || host.isEmpty()) {
+                    App.log("RETE-SWITCH: abort, host risolto vuoto");
+                    return;
+                }
+                String base = App.baseUrl(host, port);
+                App.log("RETE-SWITCH: base=" + base);
+                if (base.equals(cur)) {
+                    App.log("RETE-SWITCH: base = cur, nessun reload");
+                    return;
+                }
+                long now = System.currentTimeMillis();
+                if (now - mLastNetSwitchMs < 1500L) {
+                    App.log("RETE-SWITCH: cooldown attivo (" + (now - mLastNetSwitchMs) + " ms), nessun reload");
+                    return;
+                }
+                mLastNetSwitchMs = now;
+                App.log("RETE-SWITCH: " + cur + " -> " + base);
+                final String newBase = base;
+                runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        try {
+                            currentUrl = newBase;
+                            if (isRecentGen()) {
+                                App.log("RETE-SWITCH: generazione in corso, non recarico (currentUrl aggiornato)");
+                                return;
+                            }
+                            String url = mPageUrl;
+                            String newUrl = newBase;
+                            if (url != null && !url.isEmpty()) {
+                                try {
+                                    java.net.URL old = new java.net.URL(url);
+                                    String path = old.getPath();
+                                    String query = old.getQuery();
+                                    String suffix = (path == null || path.isEmpty()) ? "" : path;
+                                    if (query != null && !query.isEmpty()) suffix += "?" + query;
+                                    newUrl = newBase + suffix;
+                                } catch (Exception e) {
+                                    App.log("RETE-SWITCH: URL page non valido (" + e.getMessage() + "), ricarico base");
+                                }
+                            }
+                            App.log("RETE-SWITCH: reload URL=" + newUrl);
+                            webView.loadUrl(newUrl);
+                        } catch (Exception e) {
+                            App.log("RETE-SWITCH: errore reload " + e.getMessage());
+                        }
+                    }
+                });
+            } catch (Exception e) {
+                App.log("RETE-SWITCH: errore resolve " + e.getMessage());
+            }
+        }).start();
+    }
+
+    private void onNetworkChanged(String event, Network network) {
+        App.log("RETE-SWITCH: evento=" + event + " network=" + (network == null ? "null" : "id=" + network.getNetworkHandle()) + " currentUrl=" + currentUrl);
+        maybeReloadHostOnChange();
+    }
+
+    // Registrato in onCreate, rimosso in onDestroy.
+    private void setupNetworkCallback() {
+        try {
+            mConnectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (mConnectivityManager == null) return;
+            mNetworkCallback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network network) {
+                    onNetworkChanged("available", network);
+                }
+                @Override public void onLost(Network network) {
+                    onNetworkChanged("lost", network);
+                }
+                @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities nc) {
+                    onNetworkChanged("caps", network);
+                }
+            };
+            mConnectivityManager.registerDefaultNetworkCallback(mNetworkCallback);
+            App.log("RETE-SWITCH: callback registrato (metodo registerDefaultNetworkCallback)");
+        } catch (Exception e) {
+            App.log("RETE-SWITCH: callback non registrato: " + e.getMessage());
+        }
+    }
+
+    private void teardownNetworkCallback() {
+        try {
+            if (mConnectivityManager != null && mNetworkCallback != null) {
+                mConnectivityManager.unregisterNetworkCallback(mNetworkCallback);
+            }
+        } catch (Exception ignored) {}
+        mNetworkCallback = null;
+    }
+
+    // v3.3 (26/11): mobile -> DDNS prima (se non risponde, non si prova l'IP); altrimenti IP prima, DDNS come fallback.
     // La risoluzione gira in background (fino a 20 s di probe) e carica
     // l'host risolto nel thread UI.
     private void connect(final String ip, final String ddns, final String port) {
         new Thread(() -> {
-            String host = App.resolveHost(ip, ddns, port);
+            String host = App.resolveHost(this, ip, ddns, port);
             if (host.isEmpty()) {
                 runOnUiThread(this::openOptions);
                 return;
@@ -1835,6 +2037,9 @@ public class MainActivity extends AppCompatActivity {
         }
         startRunPolling();
         scheduleKeepAlive();
+        // v3.2: cambio di rete durante il secondo piano: ri-risolvo l'host e,
+        // se il base url e' cambiato, ricarico la pagina (le guardie stanno in maybeReloadHostOnChange).
+        maybeReloadHostOnChange();
     }
 
     @Override
@@ -2186,7 +2391,7 @@ public class MainActivity extends AppCompatActivity {
                         App.log("SYNC: host o token assenti, salto");
                         return;
                     }
-                    String base = App.baseUrl(App.resolveHost(ip, ddns, port), port);
+                    String base = App.baseUrl(App.resolveHost(MainActivity.this, ip, ddns, port), port);
                     final String tid = currentThreadId();
                     java.net.URL u = new java.net.URL(base + "/api/inference/chat-runs/active?threadId="
                             + java.net.URLEncoder.encode(tid, "UTF-8"));
@@ -2321,7 +2526,7 @@ public class MainActivity extends AppCompatActivity {
         String port = p.getString("port", "8888");
         String tok = p.getString("auth_access", "");
         if ((ip.isEmpty() && ddns.isEmpty()) || tok.isEmpty()) return;
-        String base = App.baseUrl(App.resolveHost(ip, ddns, port), port);
+        String base = App.baseUrl(App.resolveHost(this, ip, ddns, port), port);
         java.net.HttpURLConnection c = null;
         try {
             java.net.URL u = new java.net.URL(base + "/api/inference/chat-runs/active?threadId="
@@ -2968,27 +3173,74 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Condivide crash.log via FileProvider (gia' dichiarato nel manifest,
-    // authorities it.mattia.unsloth.fileprovider): chooser ACTION_SEND per
-    // allegare il log a email o issue GitHub.
-    private void shareLog() {
+    // v3.3: salva crash.log nella cartella Downloads del telefono, senza
+    // il chooser ACTION_SEND della versione precedente (che dava un file
+    // vuoto perche' leggeva il file mentre il logging poteva scrivere).
+    // Prima sospende il logging (App.logEnabled = false, memorizza lo
+    // stato precedente), legge il file, lo copia in Downloads, ripristina
+    // il logging e mostra un Toast. Su API 29+ scrive via MediaStore
+    // (niente permessi speciali); su API 24-28 scrive il path pubblico
+    // legacy (puo' fallire senza WRITE_EXTERNAL_STORAGE: il Toast lo dice).
+    private void saveLogToDownloads() {
+        File f = App.getLogFile();
+        if (f == null || !f.exists()) {
+            Toast.makeText(this, getString(R.string.no_log_yet), Toast.LENGTH_LONG).show();
+            return;
+        }
+        boolean wasEnabled = App.logEnabled;
+        App.logEnabled = false;
+        boolean ok = false;
+        String msg = null;
+        String fileName = null;
         try {
-            File f = App.getLogFile();
-            if (f == null || !f.exists()) {
-                Toast.makeText(this, getString(R.string.no_log_yet), Toast.LENGTH_LONG).show();
-                return;
+            fileName = "Unsloth-log-" +
+                    new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.getDefault())
+                            .format(new java.util.Date()) + ".log";
+            if (Build.VERSION.SDK_INT >= 29) {
+                ContentValues vals = new ContentValues();
+                vals.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+                vals.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+                vals.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                vals.put(MediaStore.Downloads.IS_PENDING, 1);
+                Uri uri = getContentResolver().insert(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, vals);
+                if (uri == null) throw new IOException("inserimento MediaStore fallito");
+                try (OutputStream out = getContentResolver().openOutputStream(uri);
+                     InputStream in = new FileInputStream(f)) {
+                    if (out == null) throw new IOException("apertura dello stream fallita");
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.Downloads.IS_PENDING, 0);
+                getContentResolver().update(uri, done, null, null);
+            } else {
+                File dir = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS);
+                if (dir == null) throw new IOException("cartella Download non disponibile");
+                File out = new File(dir, fileName);
+                try (InputStream in = new FileInputStream(f);
+                     OutputStream os = new FileOutputStream(out)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                }
             }
-            Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                    this, "it.mattia.unsloth.fileprovider", f);
-            Intent send = new Intent(Intent.ACTION_SEND);
-            send.setType("text/plain");
-            send.putExtra(Intent.EXTRA_STREAM, uri);
-            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            App.log("SHARE LOG: " + uri);
-            startActivity(Intent.createChooser(send, getString(R.string.download_log)));
+            ok = true;
         } catch (Exception e) {
-            App.log("SHARE LOG FAILED: " + e.getMessage());
-            Toast.makeText(this, getString(R.string.download_error, e.getMessage()), Toast.LENGTH_LONG).show();
+            msg = e.getMessage();
+            ok = false;
+        } finally {
+            App.logEnabled = wasEnabled;
+        }
+        if (ok) {
+            App.log("LOG SAVED: " + (fileName == null ? "?" : fileName));
+            Toast.makeText(this, getString(R.string.log_saved), Toast.LENGTH_LONG).show();
+        } else {
+            App.log("LOG SAVED FAILED: " + msg);
+            Toast.makeText(this, getString(R.string.download_error, msg == null ? "unknown" : msg),
+                    Toast.LENGTH_LONG).show();
         }
     }
 
@@ -3900,6 +4152,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        teardownNetworkCallback();
         // v3.0: chiusura: stesso marker di onStop, cosi un eventuale
         // processo morente non viene riavviato dal crash guard.
         sActivityAlive = false;

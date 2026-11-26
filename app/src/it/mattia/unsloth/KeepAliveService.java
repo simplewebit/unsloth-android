@@ -56,8 +56,8 @@ public class KeepAliveService extends Service {
                     stopSelf();
                     return;
                 }
-                // v2.9: IP prima, DDNS se l'IP non risponde (probe 10 s).
-                String base = App.baseUrl(App.resolveHost(ip, ddns, port), port);
+                // v3.3 (26/11): mobile -> DDNS prima (se non risponde, non si prova l'IP); altrimenti IP prima, DDNS come fallback.
+                String base = App.baseUrl(App.resolveHost(this, ip, ddns, port), port);
                 java.net.URL u = new java.net.URL(base + "/api/auth/refresh");
                 java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
                 c.setRequestMethod("POST");

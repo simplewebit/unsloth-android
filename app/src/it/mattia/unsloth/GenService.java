@@ -341,8 +341,8 @@ public class GenService extends Service {
             String d = p.getString("ddns", "");
             String port = p.getString("port", "8888");
             if (h.isEmpty() && d.isEmpty()) return "";
-            // v2.9: IP prima, DDNS se l'IP non risponde (probe 10 s).
-            return App.baseUrl(App.resolveHost(h, d, port), port);
+            // v3.3 (26/11): mobile -> DDNS prima (se non risponde, non si prova l'IP); altrimenti IP prima, DDNS come fallback.
+            return App.baseUrl(App.resolveHost(this, h, d, port), port);
         } catch (Exception e) {
             return "";
         }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.3
+
+- Network switch: the app re-resolves the host on every WiFi/mobile change and reloads the page keeping the current path/query (only when the host actually changes and the app is in the foreground; no reload if a generation is in progress).
+- Selection rule: with mobile data active, the DDNS is tried first (if it doesn't answer, the IP is not tried); on WiFi/other networks, the IP is tried first with DDNS as fallback.
+- Network state is read correctly: ACCESS_NETWORK_STATE declared in the manifest, and isMobile() logs the error and falls back to "not mobile" instead of failing silently.
+- "Projects and sessions" button: outside a chat it opens a new chat and then the sidebar once the page is ready; inside a chat it opens the sidebar with retries (1 s delay + up to 5 attempts).
+- Crash log download: saved directly to Downloads/ (no more share chooser, which produced an empty file) - MediaStore on API 29+, public Downloads on 24-28, logging suspended during the read, confirmation toast (English/Italian).
+- Version: 3.3 / versionCode 18 everywhere (manifest, APP_VERSION, Credits page).
+
 ## 3.2
 
 - Phone and other devices stay in sync: a run started on another device (e.g. the desktop app) no longer shows the error box on the phone — the phone now shows the banner instead, blocks sending and follows the run to its end.

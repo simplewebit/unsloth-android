@@ -1,7 +1,11 @@
 package it.mattia.unsloth;
 
 import android.app.Application;
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
 import android.os.Environment;
 import android.util.Log;
 import androidx.appcompat.app.AppCompatDelegate;
@@ -91,11 +95,47 @@ public class App extends Application {
         return logFile;
     }
 
-    // ===== Connessione IP/DDNS (v2.9) =====
-    // Timeout del probe di raggiungibilita': 10 s (scelta di Mattia: provare
-    // sempre l'IP per primo, poi DDNS se l'IP non risponde).
+    // ===== Connessione IP/DDNS (v2.9, 26/11 v3.3) =====
+    // Timeout del probe di raggiungibilita': 10 s.
+    // Regole di selezione (scelte di Mattia, 26/11):
+    // - rete mobile attiva: si usa il DDNS. Se il DDNS non risponde non si
+    //   prova nemmeno l'IP (il DDNS e' comunque l'unico host raggiungibile).
+    // - WiFi/altra rete: si prova l'IP per primo; se non risponde si usa il
+    //   DDNS come fallback.
     private static final int PROBE_CONNECT_MS = 10000;
     private static final int PROBE_READ_MS = 5000;
+
+    // True se la rete attiva e' mobile (dati mobili / 5G). Legge lo stato
+    // della rete corrente dall'Activity/Service che chiama resolveHost.
+    public static boolean isMobile(Context context) {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (android.os.Build.VERSION.SDK_INT >= 24) {
+                android.net.Network network = cm.getActiveNetwork();
+                if (network != null) {
+                    NetworkCapabilities nc = cm.getNetworkCapabilities(network);
+                    if (nc != null) {
+                        return nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+                    }
+                    // Capabilities mancanti: fallback al tipo della rete.
+                    NetworkInfo netInfo = cm.getNetworkInfo(network);
+                    if (netInfo != null) {
+                        return netInfo.getType() == ConnectivityManager.TYPE_MOBILE;
+                    }
+                }
+                // getActiveNetwork null (VPN, nessuna rete attiva):
+                // fallback al NetworkInfo tradizionale, unico segnale utile.
+                NetworkInfo activeInfo = cm.getActiveNetworkInfo();
+                return activeInfo != null && activeInfo.getType() == ConnectivityManager.TYPE_MOBILE;
+            } else {
+                NetworkInfo ni = cm.getActiveNetworkInfo();
+                return ni != null && ni.getType() == ConnectivityManager.TYPE_MOBILE;
+            }
+        } catch (Exception e) {
+            log("isMobile: errore lettura rete (" + e.getClass().getSimpleName() + ": " + e.getMessage() + "), assumo non mobile");
+            return false;
+        }
+    }
 
     // Base URL http://host:port da host e port (host gia' con scheme resta).
     public static String baseUrl(String host, String port) {
@@ -122,15 +162,27 @@ public class App extends Application {
         }
     }
 
-    // Risolve l'host da usare: prova l'IP per primo (timeout 10 s); se non
-    // risponde prova il DDNS (timeout 10 s). Se nessuno risponde restituisce
-    // l'IP (o il solo DDNS, se e' l'unico compilato): il chiamante lo usa
-    // cosi il collegamento va avanti e l'errore si vede nel WebView.
-    public static String resolveHost(String ip, String ddns, String port) {
+    // Risolve l'host da usare:
+    // - rete mobile attiva: se il DDNS risponde lo si usa; se non risponde
+    //   non si prova l'IP (il DDNS resta l'unico candidato).
+    // - altrimenti: se l'IP risponde lo si usa; se non risponde si prova il
+    //   DDNS come fallback; se anche il DDNS non risponde si ritorna l'IP
+    //   (o il solo DDNS, se e' l'unico compilato): il chiamante lo usa cosi
+    //   il collegamento va avanti e l'errore si vede nel WebView.
+    public static String resolveHost(Context context, String ip, String ddns, String port) {
         String h = ip == null ? "" : ip.trim();
         String d = ddns == null ? "" : ddns.trim();
-        if (!h.isEmpty() && reachable(h, port)) return h;
-        if (!d.isEmpty() && reachable(d, port)) return d;
-        return !h.isEmpty() ? h : d;
+        boolean mobile = isMobile(context);
+        String chosen;
+        if (mobile) {
+            if (!d.isEmpty() && reachable(d, port)) chosen = d;
+            else chosen = !d.isEmpty() ? d : h;
+        } else {
+            if (!h.isEmpty() && reachable(h, port)) chosen = h;
+            else if (!d.isEmpty() && reachable(d, port)) chosen = d;
+            else chosen = !h.isEmpty() ? h : d;
+        }
+        log("RESOLVE: mobile=" + mobile + " ip=" + h + " ddns=" + d + " -> " + chosen);
+        return chosen;
     }
 }

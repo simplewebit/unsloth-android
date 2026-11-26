@@ -45,7 +45,7 @@
     <!-- Changelog (v3.2) -->
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Chiudi</string>
-    <string name="changelog_current">v3.2\n- Sincronizzazione con gli altri dispositivi: un run partito da un altro dispositivo (come l\'app desktop) non mostra più la box errore sul telefono. Il telefono mostra il banner, blocca l\'invio e segue il run fino alla fine.\n- Testo del banner: \"Generazione avviata da altro dispositivo\" con \"Attendi la fine\" in piccolo sotto.\n- Tastiera: la tastiera soft resta chiusa al rientro in chat (un tap sulla notifica sulla stessa chat non ricarica più la pagina; in caso contrario la tastiera si chiude dopo il ricaricamento e un listener focus + blocco di 5 s toglie il focus a qualsiasi input che riprende a ricevere focus nel frattempo; il blocco si arma anche a ogni cambio di rotta in-page, così il composer non riprende il focus dopo il cambio chat).</string>
+    <string name="changelog_current">v3.3\n- Cambio rete: l\'app ri-risolve l\'host a ogni cambio WiFi/mobile e ricarica la pagina mantenendo il path/query attuale (solo se l\'host cambia davvero e l\'app è in primo piano; niente reload se una generazione è in corso).\n- Regole di selezione: con rete mobile attiva si prova il DDNS per primo (se non risponde, non si prova l\'IP); su WiFi/altra rete si prova l\'IP per primo, col DDNS come fallback.\n- Lettura dello stato della rete corretta: ACCESS_NETWORK_STATE dichiarato nel manifest; isMobile() logga l\'errore e ricade su \"non mobile\" invece di fallire in silenzio.\n- Bottone \"Progetti e sessioni\": fuori da una chat apre una nuova chat e poi la barra sidebar quando la pagina è pronta; dentro una chat apre la sidebar con ritentativi (ritardo di 1 s + fino a 5 tentativi).\n- Download del log di crash: salvato direttamente in Downloads/ (niente più share chooser, che produceva un file vuoto) - MediaStore su API 29+, Downloads pubblico su 24-28, logging sospeso durante la lettura, toast di conferma (inglese/italiano).\n- Versione: 3.3 / versionCode 18 ovunque (manifest, APP_VERSION, pagina Credits).</string>
 
     <!-- Options panel -->
     <string name="options_title">Opzioni</string>
@@ -66,6 +66,7 @@
     <string name="download_log">Scarica log</string>
     <string name="clear_log">Svuota log</string>
     <string name="no_log_yet">Nessun log ancora.</string>
+    <string name="log_saved">Log salvato in Download</string>
     <string name="log_cleared">Log svuotato.</string>
 
     <!-- Misc UI -->

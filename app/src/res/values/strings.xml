@@ -60,12 +60,13 @@
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Close</string>
     <!-- Novità della versione corrente: aggiornare a ogni nuova versione. -->
-    <string name="changelog_current">v3.2\n- Phone and other devices stay in sync: a run started on another device (e.g. the desktop app) no longer shows the error box. The phone shows the banner instead, blocks sending, and follows the run to its end.\n- Banner text: \"Generation started by another device\" with a small \"Wait for it to finish\" underneath.\n- Keyboard: soft keyboard stays closed on chat re-entry (notification tap on the same chat no longer reloads the page; otherwise the keyboard is hidden after the reload, and a focus listener + 5 s lock blur any input that regains focus in the meantime; the lock is also armed on every in-page route change so the composer cannot take focus after an in-page chat switch).</string>
+    <string name="changelog_current">v3.3\n- Network switch: the app re-resolves the host on every WiFi/mobile change and reloads the page keeping the current path/query (only when the host actually changes and the app is in the foreground; no reload if a generation is in progress).\n- Selection rule: with mobile data active, the DDNS is tried first (if it doesn\'t answer, the IP is not tried); on WiFi/other networks, the IP is tried first with DDNS as fallback.\n- Network state is read correctly: ACCESS_NETWORK_STATE declared in the manifest, and isMobile() logs the error and falls back to \"not mobile\" instead of failing silently.\n- \"Projects and sessions\" button: outside a chat it opens a new chat and then the sidebar once the page is ready; inside a chat it opens the sidebar with retries (1 s delay + up to 5 attempts).\n- Crash log download: saved directly to Downloads/ (no more share chooser, which produced an empty file) - MediaStore on API 29+, public Downloads on 24-28, logging suspended during the read, confirmation toast (English/Italian).\n- Version: 3.3 / versionCode 18 everywhere (manifest, APP_VERSION, Credits page).</string>
 
     <!-- Log panel -->
     <string name="download_log">Download log</string>
     <string name="clear_log">Clear log</string>
     <string name="no_log_yet">No log yet.</string>
+    <string name="log_saved">Log saved in Downloads</string>
     <string name="log_cleared">Log cleared.</string>
 
     <!-- Misc UI -->
