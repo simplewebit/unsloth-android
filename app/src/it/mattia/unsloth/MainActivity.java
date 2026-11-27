@@ -93,16 +93,21 @@ public class MainActivity extends AppCompatActivity {
     private ScrollView optionsPanel;
     private Switch switchScreenOn;
     private boolean mScreenOnEnabled = true;
+    private Switch switchWakeScreen;
     private LinearLayout errorPanel;
     private TextView errorText;
     private TextView creditContact;
+    private TextView creditVersion;
     // v3.0.1: changelog - link "Changelog" nella pagina Credits (verso
     // CHANGELOG.md su GitHub) e pannello a tutto schermo mostrato alla prima
     // apertura di una nuova versione (una volta per versionCode).
     private ScrollView changelogPanel;
-    private Button creditChangelog;
+    private TextView creditChangelog;
     private static final String CHANGELOG_GITHUB_URL =
             "https://github.com/simplewebit/unsloth-android/blob/main/CHANGELOG.md";
+    // Home della repo GitHub (link dalla pagina Credits).
+    private static final String GITHUB_REPO_URL =
+            "https://github.com/simplewebit/unsloth-android";
     private ScrollView logPanel;
     private TextView logText;
     private Switch switchLog;
@@ -179,6 +184,10 @@ public class MainActivity extends AppCompatActivity {
     // /chat-runs/<id>/events): cosi un run "mio" resta riconosciuto come mio
     // anche oltre la finestra di 10 min di isRecentGen() (run lunghi > 10 min).
     private volatile String mMyRunId = null;
+    // Thread in cui gira il run mio (catturato insieme a mMyRunId): serve
+    // al banner "risposta pronta" per mostrare il thread giusto anche se
+    // il lettore cambia chat mentre il run e' in corso.
+    private volatile String mMyRunThreadId = null;
     // Thread per cui ripristinare lo scroll all'avvio (ultimo thread ripreso).
     private volatile String mScrollRestoreThread = null;
     // Timestamp del ultimo onPause: serve a capire se la generazione e' finita
@@ -214,6 +223,16 @@ public class MainActivity extends AppCompatActivity {
     // Thread target arrivato dal tap sulla notifica (extra "threadId"):
     // all'avvio openLiveThread lo apre al posto del thread piu' recente.
     private volatile String mTargetThreadId = "";
+    // true quando mTargetThreadId viene dal tap sulla notifica (extra
+    // "threadId"): solo allora il cold-start naviga diretta appena la
+    // pagina base e caricata (senza passare dal controllo server di
+    // openLiveThread). Per il resume dell'ultimo thread (mLastThread)
+    // resta il flusso con verifica.
+    private volatile boolean mTargetFromNotification = false;
+    // 3.5: solo il tap sulla notifica "risposta pronta"
+    // (extra "notifType" = "done") al rientro NON ricarica la chat (nessun reload
+    // "generazione finita"). Dalle altre notifiche il tap ricarica la pagina.
+    private volatile boolean mReentryViaNotification = false;
     // URL della pagina in cui e' partito l'ultimo heal: dopo il refresh
     // ricarico questa pagina (la chat corrente), non la pagina base.
     private volatile String mHealReturnUrl = null;
@@ -224,6 +243,9 @@ public class MainActivity extends AppCompatActivity {
     // mostra il banner "elaborazione in corso", blocca l'invio e a runs vuoto
     // ri-sincronizza la chat dal server.
     private static final long RUN_POLL_MS = 3000;
+    // 3.5: poll dedicato per rilevare la conferma utente: 0.7 s
+    // (non 3 s) -> la conferma va segnalata praticamente in tempo reale.
+    private static final long APPROVAL_POLL_MS = 700;
     private volatile boolean mPollRunning = false;
     private volatile boolean mRunActive = false;
     private volatile String mSawActiveThread = "";
@@ -271,7 +293,7 @@ public class MainActivity extends AppCompatActivity {
     private int mBlobChunkIndex;
     // Versione dell'app: incrementata a ogni build, usata nel check update
     // GitHub e nel User-Agent (non più mostrata a schermo).
-    static final String APP_VERSION = "3.3.1";
+    static final String APP_VERSION = "3.5";
 
     // v2: banner aggiornamento (check GitHub all'avvio, download nativo + install).
     private View updateBanner;
@@ -283,6 +305,22 @@ public class MainActivity extends AppCompatActivity {
     private String mUpdateApkUrl;
     private boolean mUpdateChecking;
     private boolean mUpdateDownloading;
+
+    // v3.4: banner in-app "risposta pronta" + stato del thread che tiene.
+    private View responseBanner;
+    private TextView responseBannerSub;
+    private String mResponseBannerThreadId = "";
+
+    // 3.5: banner in-app "conferma utente" richiesta dalla chat (tool call in
+    // attesa di approvazione): tap -> apre la chat; X -> nasconde solo il banner.
+    private View approvalBanner;
+    private TextView approvalSub;
+    private String mApprovalBannerThreadId = "";
+    // Dedup per messaggio (tid + ":" + messageId): una conferma gia'
+    // segnalata non si ripresenta ad ogni poll.
+    private String mApprovalShownKey = "";
+    private volatile boolean mApprovalPollRunning = false;
+    private Thread mApprovalPollThread;
 
     private int mBlobChunkCount;
     private OutputStream mBlobOut;
@@ -319,15 +357,19 @@ public class MainActivity extends AppCompatActivity {
         // v3.0: palette Studio (key "palette", default "standard").
         mPalette = getSharedPreferences(PREFS, MODE_PRIVATE).getString("palette", "standard");
         if (mPalette == null) mPalette = "standard";
-        // Se l'avvio viene dal tap sulla notifica "generazione/risposta",
-        // l'intent porta l'extra "threadId": all'avvio si apre quella chat.
+        // Se l'avvio viene dal tap sulla notifica, l'intent porta l'extra
+        // "threadId": all'avvio si apre quella chat. Solo la notifica
+        // "risposta pronta" (extra "notifType" = "done") apre la chat senza
+        // ricaricare la pagina; dalle altre notifiche il tap ricarica.
         try {
             Intent li = getIntent();
             if (li != null) {
+                mReentryViaNotification = "done".equals(li.getStringExtra("notifType"));
                 String tt = li.getStringExtra("threadId");
                 if (tt != null && !tt.isEmpty()) {
                     mTargetThreadId = tt;
-                    App.log("OPEN-THREAD: target dall'intent " + tt);
+                    mTargetFromNotification = true;
+                    App.log("OPEN-THREAD: target dall'intent " + tt + " (reentry=" + mReentryViaNotification + ")");
                 }
             }
         } catch (Exception e) {
@@ -351,7 +393,7 @@ public class MainActivity extends AppCompatActivity {
             nm.createNotificationChannel(ch);
         }
 
-        // Channel notifiche generazione: gen_done (DEFAULT) per la notifica
+        // Channel notifiche generazione: gen_done_v2 (HIGH) per la notifica
         // "risposta pronta", gen_keepalive per la notifica ongoing.
         GenService.ensureChannels(this);
 
@@ -515,6 +557,7 @@ public class MainActivity extends AppCompatActivity {
             editPort.setHintTextColor(android.graphics.Color.LTGRAY);
             optionsPanel = findViewById(R.id.options_panel);
             switchScreenOn = findViewById(R.id.switch_screen_on);
+            switchWakeScreen = findViewById(R.id.switch_wake_screen);
             errorPanel = findViewById(R.id.error_panel);
             errorText = findViewById(R.id.error_text);
             logPanel = findViewById(R.id.log_panel);
@@ -530,21 +573,73 @@ public class MainActivity extends AppCompatActivity {
             updateStatus = findViewById(R.id.update_status);
             btnCheckUpdates = findViewById(R.id.btn_check_updates);
             btnCheckUpdates.setOnClickListener(v -> manualUpdateCheck());
+            // v3.4: banner in-app "risposta pronta": tap -> apre la chat
+            // all'ultimo messaggio; X -> nasconde solo il banner.
+            responseBanner = findViewById(R.id.response_ready_banner);
+            responseBannerSub = findViewById(R.id.response_ready_sub);
+            View responseClose = findViewById(R.id.response_ready_close);
+            if (responseBanner != null) {
+                responseBanner.setOnClickListener(v -> {
+                    String tid = mResponseBannerThreadId;
+                    dismissResponseReadyBanner();
+                    if (tid != null && !tid.isEmpty()) {
+                        openThreadAtLastMessage(tid);
+                    }
+                });
+            }
+            if (responseClose != null) {
+                responseClose.setOnClickListener(v -> dismissResponseReadyBanner());
+            }
+            // 3.5: banner in-app "conferma utente": tap -> apre la chat
+            // all'ultimo messaggio; X -> nasconde solo il banner.
+            approvalBanner = findViewById(R.id.approval_banner);
+            approvalSub = findViewById(R.id.approval_sub);
+            View approvalClose = findViewById(R.id.approval_close);
+            if (approvalBanner != null) {
+                approvalBanner.setOnClickListener(v -> {
+                    String tid = mApprovalBannerThreadId;
+                    dismissApprovalBanner();
+                    cancelApprovalNotification();
+                    if (tid != null && !tid.isEmpty()) {
+                        openThreadAtLastMessage(tid);
+                    }
+                });
+            }
+            if (approvalClose != null) {
+                approvalClose.setOnClickListener(v -> dismissApprovalBanner());
+            }
             // v3.0.1: link pagina Credits bianchi in dark (il jar di build non
             // ha l'attributo android:textLinkColor: lo imposto qui).
             creditContact = findViewById(R.id.credit_contact);
+            creditVersion = findViewById(R.id.credit_version);
+            if (creditVersion != null) {
+                creditVersion.setText("v" + APP_VERSION);
+            }
             if (creditContact != null) {
                 creditContact.setLinkTextColor(getResources().getColor(R.color.credit_link));
             }
-            // v3.0.1: bottone "Changelog" nella pagina Credits ->
-            // CHANGELOG.md su GitHub (bottone verde stile btn_check_updates,
-            // testo bianco da @color/text_on_brand nell'XML).
+            // v3.5: bottone "Changelog" nella pagina Credits ->
+            // CHANGELOG.md su GitHub (stile outlined, testo @color/credit_link;
+            // TextView cliccabile — pattern credit_github_link).
             creditChangelog = findViewById(R.id.credit_changelog);
             if (creditChangelog != null) {
                 creditChangelog.setOnClickListener(v -> {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW,
                                 Uri.parse(CHANGELOG_GITHUB_URL)));
+                    } catch (Exception e) {
+                        Toast.makeText(this, "No browser available",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+            // v3.4: icona GitHub + "GitHub repo" -> home della repo GitHub.
+            View creditGithub = findViewById(R.id.credit_github_link);
+            if (creditGithub != null) {
+                creditGithub.setOnClickListener(v -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW,
+                                Uri.parse(GITHUB_REPO_URL)));
                     } catch (Exception e) {
                         Toast.makeText(this, "No browser available",
                                 Toast.LENGTH_LONG).show();
@@ -570,6 +665,17 @@ public class MainActivity extends AppCompatActivity {
                 }
                 App.log("OPZIONI schermo sempre acceso: " + (checked ? "on" : "off"));
             });
+
+            // Opzione "accendi schermo": se attiva, lo schermo si accende
+            // per pochi secondi quando la risposta e' pronta (GenService).
+            boolean mWakeScreenEnabled = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("wake_screen", true);
+            if (switchWakeScreen != null) {
+                switchWakeScreen.setChecked(mWakeScreenEnabled);
+                switchWakeScreen.setOnCheckedChangeListener((v, checked) -> {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("wake_screen", checked).apply();
+                    App.log("OPZIONI accendi schermo: " + (checked ? "on" : "off"));
+                });
+            }
 
             // Opzione log on/off (default: on). Off = niente scrittura di
             // crash.log (il crash handler scrive sempre) e il pulsante Log
@@ -921,8 +1027,11 @@ public class MainActivity extends AppCompatActivity {
                                 String rid = rest2.substring(0, ej);
                                 if (!rid.isEmpty() && !rid.equals("undefined")) {
                                     mMyRunId = rid;
+                                    mMyRunThreadId = currentThreadId();
                                     getSharedPreferences(PREFS, MODE_PRIVATE)
-                                            .edit().putString("my_run_id", rid).apply();
+                                            .edit().putString("my_run_id", rid)
+                                            .putString("my_run_thread", mMyRunThreadId)
+                                            .apply();
                                 }
                             }
                         }
@@ -985,6 +1094,38 @@ public class MainActivity extends AppCompatActivity {
                 mPageUrl = url;
                 syncTokensFromPage();
                 injectWarningHider();
+                // Banner in-app: se sto in chat del thread, sparisce.
+                if (!mResponseBannerThreadId.isEmpty() && mResponseBannerThreadId.equals(currentThreadId())) {
+                    dismissResponseReadyBanner();
+                }
+                if (!mApprovalBannerThreadId.isEmpty() && mApprovalBannerThreadId.equals(currentThreadId())) {
+                    dismissApprovalBanner();
+                }
+                // Cold-start da tap sulla notifica: se c'e' un thread target,
+                // navigazione diretta immediatamente (senza aspettare
+                // autoOpenPending/healAndOpenLive). Il thread target viene
+                // consumato qui perche' openLiveThread poi non lo usa.
+                if (mTargetFromNotification && mTargetThreadId != null && !mTargetThreadId.isEmpty()) {
+                    final String fid = mTargetThreadId;
+                    mTargetThreadId = "";
+                    mTargetFromNotification = false;
+                    App.log("OPEN-THREAD: cold-start navigazione diretta " + fid);
+                    if (currentUrl != null && !currentUrl.isEmpty()) {
+                        try {
+                            String target = currentUrl + "/chat?thread="
+                                    + java.net.URLEncoder.encode(fid, "UTF-8");
+                            App.log("OPEN-THREAD: apri " + target);
+                            webView.loadUrl(target);
+                            scrollToBottomAfterLoad();
+                        } catch (Exception e) {
+                            App.log("OPEN-THREAD: errore " + e.getMessage());
+                        }
+                    } else {
+                        App.log("OPEN-THREAD: currentUrl assente, resto dove sono");
+                    }
+                    mAutoOpenPending = false;
+                    return;
+                }
                 if (mAutoOpenPending && url != null && !url.contains("/login")) {
                     mAutoOpenPending = false;
                     healAndOpenLive();
@@ -1005,6 +1146,7 @@ public class MainActivity extends AppCompatActivity {
         // Run avviato dalla sessione precedente, ancora attivo: riapendolo
         // l'app lo riconosce come "mio" (niente banner cross-client).
         mMyRunId = prefs.getString("my_run_id", null);
+        mMyRunThreadId = prefs.getString("my_run_thread", null);
         setupNetworkCallback();
         String ip = prefs.getString("host", "");
         String ddns = prefs.getString("ddns", "");
@@ -1079,6 +1221,316 @@ public class MainActivity extends AppCompatActivity {
             }, d);
         }
         App.log("SCROLL-RESTORE: thread " + tid + " a y=" + yv);
+    }
+
+    // v3.4: apre la chat del thread (tap banner in-app o tap notifica) e la
+    // porta all'ultimo messaggio: scroll nativo + JS con retry, perche' la SPA
+    // renderizza i messaggi dopo il caricamento.
+    private void openThreadAtLastMessage(String tid) {
+        if (tid == null || tid.isEmpty()) return;
+        dismissResponseReadyBanner();
+        // Conferma utente: se il banner in-app e' per lo stesso thread, sparisce
+        // e la heads-up del sistema (id 3) non resta da sola.
+        if (!mApprovalBannerThreadId.isEmpty() && mApprovalBannerThreadId.equals(tid)) {
+            dismissApprovalBanner();
+            cancelApprovalNotification();
+        }
+        // Notifica heads-up esterna: al tap su banner in-app o su notifica
+        // esterna, la heads-up del sistema sparisce (non resta in mezzo allo
+        // schermo mentre apriamo la chat).
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(2);
+        } catch (Exception ignored) {
+        }
+        String curTid = currentThreadId();
+        mErrorActive = false;
+        errorPanel.setVisibility(View.GONE);
+        logPanel.setVisibility(View.GONE);
+        creditsPanel.setVisibility(View.GONE);
+        optionsPanel.setVisibility(View.GONE);
+        if (changelogPanel != null) changelogPanel.setVisibility(View.GONE);
+        webView.setVisibility(View.VISIBLE);
+        updateBar();
+        hideKeyboard();
+        lockKeyboardSoon();
+        // Il tap sulla notifica porta direttamente all'ultimo messaggio:
+        // azzero la posizione salvata di questo thread, cosi' il ripristino
+        // non riporta a una posizione vecchia.
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove("scroll_" + tid).apply();
+        } catch (Exception ignored) {
+        }
+        if (tid.equals(curTid)) {
+            scrollToBottomAfterLoad();
+            return;
+        }
+        if (currentUrl != null && !currentUrl.isEmpty()) {
+            try {
+                String target = currentUrl + "/chat?thread="
+                        + java.net.URLEncoder.encode(tid, "UTF-8");
+                App.log("OPEN-THREAD: apri " + target);
+                webView.loadUrl(target);
+                scrollToBottomAfterLoad();
+            } catch (java.io.UnsupportedEncodingException e) {
+                App.log("OPEN-THREAD: errore encode " + e.getMessage());
+            }
+        }
+    }
+
+    // v3.4: scroll alla fine dei messaggi (WebView window-scroll + viewport
+    // interna di Studio), con retry ritardati perche' la SPA renderizza
+    // dopo il caricamento.
+    private void scrollToBottomAfterLoad() {
+        android.os.Handler h = new android.os.Handler(getMainLooper());
+        long[] delays = {600L, 1200L, 2500L, 4500L};
+        for (long d : delays) {
+            h.postDelayed(() -> {
+                try {
+                    webView.evaluateJavascript("(function(){"
+                            + "var vp=document.querySelector('.aui-thread-viewport');"
+                            + "if(vp){vp.scrollTop=vp.scrollHeight;}"
+                            + "var de=document.documentElement;"
+                            + "window.scrollTo(0,de.scrollHeight);"
+                            + "var bd=document.body;"
+                            + "if(bd&&bd.scrollHeight>de.scrollHeight)window.scrollTo(0,bd.scrollHeight);"
+                            + "})();", null);
+                } catch (Exception ignored) {
+                }
+            }, d);
+        }
+    }
+
+    // v3.4: banner in-app "risposta pronta". Mostrato quando una generazione
+    // finisce (proprio o di un altro client). Tap -> apre la chat all'ultimo
+    // messaggio; X -> nasconde solo il banner.
+    private void showResponseReadyBanner(String tid, String title) {
+        if (responseBanner == null || tid == null || tid.isEmpty()) return;
+        // Se l'app e' in secondo piano, la "risposta pronta" la mostra solo
+        // la notifica Android (GenService): il banner in-app resta nascosto.
+        boolean foreground = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean("app_foreground", false);
+        if (!foreground) return;
+        if (responseBanner.getVisibility() == View.VISIBLE && tid.equals(mResponseBannerThreadId)) return;
+        // Se sto gia' nella chat di quel thread la risposta e' davanti agli
+        // occhi: il banner e' superfluo, non lo mostro.
+        if (tid.equals(currentThreadId())) {
+            App.log("BANNER: thread gia' aperto, niente banner");
+            return;
+        }
+        // Banner in-app visibile: la notifica heads-up del sistema (id 2)
+        // va via - il banner in-app e' la sola fonte di "risposta pronta"
+        // che si vede quando l'app e' in primo piano.
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(2);
+        } catch (Exception ignored) {
+        }
+        mResponseBannerThreadId = tid;
+        if (responseBannerSub != null) {
+            String sub = (title == null || title.isEmpty())
+                    ? getString(R.string.banner_ready_sub_default)
+                    : "\u00ab" + title + "\u00bb";
+            responseBannerSub.setText(sub);
+        }
+        responseBanner.setVisibility(View.VISIBLE);
+        updateBar();
+    }
+
+    private void dismissResponseReadyBanner() {
+        if (responseBanner != null) responseBanner.setVisibility(View.GONE);
+        mResponseBannerThreadId = "";
+        updateBar();
+    }
+
+    // 3.5: banner in-app "conferma utente": tap -> apre la chat all'ultimo
+    // messaggio; X -> nasconde solo il banner. Regola come "risposta pronta":
+    // solo in primo piano; se siamo gia' nella chat del thread il segnale e'
+    // davanti agli occhi, niente banner.
+    private void showApprovalBanner(String tid, String title) {
+        if (approvalBanner == null || tid == null || tid.isEmpty()) return;
+        boolean foreground = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean("app_foreground", false);
+        if (!foreground) return;
+        if (approvalBanner.getVisibility() == View.VISIBLE && tid.equals(mApprovalBannerThreadId)) return;
+        if (tid.equals(currentThreadId())) {
+            App.log("APPROVAL: stessa chat, niente banner");
+            return;
+        }
+        // Banner visibile: la heads-up Android (id 3) non deve comparire.
+        cancelApprovalNotification();
+        mApprovalBannerThreadId = tid;
+        if (approvalSub != null) {
+            approvalSub.setText((title == null || title.isEmpty())
+                    ? getString(R.string.banner_approval_sub_default)
+                    : "\u00ab" + title + "\u00bb");
+        }
+        approvalBanner.setVisibility(View.VISIBLE);
+        updateBar();
+    }
+
+    private void dismissApprovalBanner() {
+        if (approvalBanner != null) approvalBanner.setVisibility(View.GONE);
+        mApprovalBannerThreadId = "";
+        updateBar();
+    }
+
+    private void cancelApprovalNotification() {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(3);
+        } catch (Exception ignored) {
+        }
+    }
+
+    // 3.5: rilevamento conferma utente (tool call in attesa di approvazione).
+    // Il DOM della pagina mostra i bottoni Allow/Always allow/Deny/Full Access
+    // (structured tool-call card); si leggono via evaluateJavascript e si
+    // impilano banner/notifica secondo le regole: stesso thread della pagina
+    // -> tutto silenziato (lo si vede); primo piano -> banner in-app;
+    // background -> solo notifica Android (+ accendi schermo se on).
+    private static final String JS_DETECT_APPROVAL =
+            "(function(){"
+            + "var btns=document.querySelectorAll('button[data-slot=\"button\"]');"
+            + "var texts=['Allow','Always allow','Deny','Full Access'];"
+            + "for(var i=0;i<btns.length;i++){"
+            + "  var t=(btns[i].textContent||'').trim();"
+            + "  if(texts.indexOf(t)>=0){"
+            + "    var el=btns[i];"
+            + "    while(el){"
+            + "      var mid=el.getAttribute&&el.getAttribute('data-message-id');"
+            + "      if(mid) return {found:true,messageId:mid};"
+            + "      el=el.parentElement;"
+            + "    }"
+            + "    return {found:true,messageId:''};"
+            + "  }"
+            + "}"
+            + "return {found:false};"
+            + "})();";
+
+    // Chiamata dal thread di polling a ogni giro. Non blocca nulla: la JS gira
+    // sulla UI, il callback (che chiama handleApprovalDetection) arriva
+    // sul thread UI.
+    private void checkApprovalPending() {
+        String url = mPageUrl;
+        if (url == null || !url.contains("chat")) return;
+        String tid = currentThreadId();
+        if (tid == null || tid.isEmpty()) return;
+        runOnUiThread(() -> {
+            try {
+                if (webView == null) return;
+                webView.evaluateJavascript(JS_DETECT_APPROVAL, new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        handleApprovalDetection(currentThreadId(), value);
+                    }
+                });
+            } catch (Exception e) {
+                App.log("APPROVAL: evaluateJavascript errore " + e.getMessage());
+            }
+        });
+    }
+
+    private void handleApprovalDetection(String tid, String jsonValue) {
+        if (tid == null || tid.isEmpty()) return;
+        try {
+            if (jsonValue == null) return;
+            org.json.JSONObject j = new org.json.JSONObject(jsonValue);
+            boolean found = j.optBoolean("found");
+            String messageId = j.optString("messageId", "");
+            if (!found) {
+                // Conferma presa/risolta: azzero dedup e nasconde il banner.
+                if (!mApprovalShownKey.isEmpty()) {
+                    App.log("APPROVAL: conferma presa, azzero dedup");
+                    mApprovalShownKey = "";
+                    dismissApprovalBanner();
+                }
+                return;
+            }
+            // Prima il controllo "gia' nella chat con la conferma pendente":
+            // in questo caso niente chiave e nessun segnale (il segnale
+            // potrebbe riapparire se l'utente cambia chat). Poi dedup per messageId.
+            boolean foreground = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getBoolean("app_foreground", false);
+            if (foreground && tid.equals(currentThreadId())) {
+                // Già nella chat con la conferma pendente: tutto silenziato
+                // (niente banner in-app, niente notifica Android, niente wake).
+                App.log("APPROVAL: stessa chat, silenziato");
+                return;
+            }
+            String key = tid + ":" + messageId;
+            if (key.equals(mApprovalShownKey)) return;
+            mApprovalShownKey = key;
+            App.log("APPROVAL: found tid=" + tid + " foreground=" + foreground);
+            // Notifica/banner immediato con testo di default (quasi in tempo
+            // reale): il titolo della chat viene aggiornato dopo.
+            showApprovalBanner(tid, "");
+            GenService.postApprovalPending(MainActivity.this, tid, "");
+            fetchApprovalTitleAsync(tid, messageId);
+        } catch (Exception e) {
+            App.log("APPROVAL: gestione errore " + e.getMessage());
+        }
+    }
+
+    // Titolo della chat (opzionale) letto in thread dedicato: il callback di
+    // evaluateJavascript gira sul thread UI e una richiesta sincrona si
+    // bloccherebbe. Al risveglio del titolo, banner o notifica secondo lo stato
+    // attuale.
+        // 3.5: il titolo della chat viene dopo la notifica (che già esiste
+    // con il testo di default): aggiorna banner e notifica con il titolo
+    // reale. Se la conferma è stata presa/risolta o la pagina è cambiata,
+    // non aggiorna nulla.
+    private void fetchApprovalTitleAsync(final String tid, final String messageId) {
+        final String[] titleBox = new String[1];
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String title = "";
+                try {
+                    SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+                    String ip = p.getString("host", "");
+                    String ddns = p.getString("ddns", "");
+                    String port = p.getString("port", "8888");
+                    String tok = p.getString("auth_access", "");
+                    if (!((ip.isEmpty() && ddns.isEmpty()) || tok.isEmpty())) {
+                        String base = App.baseUrl(App.resolveHost(MainActivity.this, ip, ddns, port), port);
+                        title = fetchThreadTitle(base, tok, tid);
+                    }
+                } catch (Exception ignored) {
+                }
+                titleBox[0] = title;
+                runOnUiThread(() -> {
+                    try {
+                        String t2 = titleBox[0] != null ? titleBox[0] : "";
+                        String key = tid + ":" + messageId;
+                        if (!key.equals(mApprovalShownKey)) return;
+                        boolean foregroundNow = getSharedPreferences(PREFS, MODE_PRIVATE)
+                                .getBoolean("app_foreground", false);
+                        boolean sameNow = tid.equals(currentThreadId());
+                        if (foregroundNow && sameNow) {
+                            // In chat con la conferma: nessun segnale.
+                            cancelApprovalNotification();
+                            dismissApprovalBanner();
+                            App.log("APPROVAL: stessa chat ora, niente da aggiornare");
+                            return;
+                        }
+                        if (foregroundNow) {
+                            // Primo piano (altra chat): aggiorna il banner se visibile.
+                            if (approvalBanner != null && approvalBanner.getVisibility() == View.VISIBLE
+                                    && tid.equals(mApprovalBannerThreadId) && approvalSub != null) {
+                                approvalSub.setText((t2 == null || t2.isEmpty())
+                                        ? getString(R.string.banner_approval_sub_default)
+                                        : "\u00AB" + t2 + "\u00BB");
+                            }
+                        }
+                        // Re-post con titolo reale (stesso id 3): aggiorna la notifica in
+                        // background; no-op in primo piano.
+                        GenService.postApprovalPending(MainActivity.this, tid, t2);
+                    } catch (Exception ignored) {
+                    }
+                });
+            }
+        }, "approval-title").start();
     }
 
     private void showBar() {
@@ -1418,6 +1870,7 @@ public class MainActivity extends AppCompatActivity {
         if ((mTargetThreadId == null || mTargetThreadId.isEmpty())
                 && mLastThread != null && !mLastThread.isEmpty()) {
             mTargetThreadId = mLastThread;
+            mTargetFromNotification = false;
             mScrollRestoreThread = mLastThread;
             App.log("RESUME: ultimo thread " + mLastThread);
         }
@@ -1585,6 +2038,7 @@ public class MainActivity extends AppCompatActivity {
                         App.log("LIVE-THREAD: apri " + target);
                         mLiveOpened = true;
                         webView.loadUrl(target);
+                        scrollToBottomAfterLoad();
                     } catch (Exception e) { App.log("LIVE-THREAD: errore nav " + e.getMessage()); }
                 });
             } catch (Exception e) {
@@ -1971,6 +2425,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         mInForeground = true;
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("app_foreground", true).apply();
+        } catch (Exception ignored) {
+        }
         App.log("onResume (primo piano)");
         sActivityAlive = true;
         // v3.1: al rientro nella chat la tastiera soft e' sempre chiusa:
@@ -2009,6 +2468,9 @@ public class MainActivity extends AppCompatActivity {
         boolean wasGenerating = isRecentGen();
         if (mWasSuspended) {
             mWasSuspended = false;
+            // Rientro da notifica (tap, extra "threadId"): nessun reload.
+            boolean entryViaNotification = mReentryViaNotification;
+            mReentryViaNotification = false;
             long doneTs = 0;
             try {
                 doneTs = getSharedPreferences(PREFS, MODE_PRIVATE).getLong("gen_done_ts", 0);
@@ -2019,23 +2481,29 @@ public class MainActivity extends AppCompatActivity {
                 // ricaricarla. Se serve a ricaricare c'e' il tasto refresh
                 // nella barra in alto.
                 App.log("onResume: niente resync, resto sulla chat");
-            } else if (doneTs > 0) {
+            } else if (doneTs > 0 && !entryViaNotification) {
                 // Il service ha segnato il completamento (mentre eravamo via,
                 // o gia' prima): ricarico la chat dal server. Non riavvio il
                 // service: onStartCommand farebbe cancel(2) e cancellerebbe
                 // la notifica "risposta pronta".
                 genFinitaResync();
+            } else if (doneTs > 0) {
+                // Rientro da notifica: niente reload. Il service non viene
+                // avviato (farebbe cancel(2) sulla notifica "risposta pronta").
+                App.log("onResume: rientro da notifica, niente reload");
             } else {
                 // Race coperta: il POST chat-runs puo' essere arrivato in
                 // background dopo onPause, quando startGenServiceNow non poteva
                 // partire il FGS (ForegroundServiceStartNotAllowedException).
                 // Al rientro l'app e' in primo piano: riprovo l'avvio del service
-                // e poi verifico lo stato della generazione.
+                // e poi verifico lo stato della generazione (niente reload se
+                // il rientro e' stato da una notifica).
                 startGenServiceNow();
-                checkGenStatusAndResync();
+                checkGenStatusAndResync(entryViaNotification);
             }
         }
         startRunPolling();
+        startApprovalPolling();
         scheduleKeepAlive();
         // v3.2: cambio di rete durante il secondo piano: ri-risolvo l'host e,
         // se il base url e' cambiato, ricarico la pagina (le guardie stanno in maybeReloadHostOnChange).
@@ -2046,6 +2514,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         mInForeground = false;
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("app_foreground", false).apply();
+        } catch (Exception ignored) {
+        }
         mWasSuspended = true;
         mSuspendTs = System.currentTimeMillis();
         App.log("onPause (secondo piano)");
@@ -2104,50 +2577,17 @@ public class MainActivity extends AppCompatActivity {
         super.onNewIntent(intent);
         try {
             if (intent != null && currentUrl != null) {
+                // 3.5: solo la notifica "risposta pronta" (extra "notifType" =
+                // "done") apre la chat senza ricaricare la pagina (nessuna
+                // genFinitaResync al rientro). Dalle altre notifiche (conferma
+                // utente, ongoing "generazione in corso", restart, download)
+                // il tap ricarica la pagina come prima.
+                mReentryViaNotification = "done".equals(intent.getStringExtra("notifType"));
                 String tt = intent.getStringExtra("threadId");
                 if (tt != null && !tt.isEmpty()) {
                     final String fid = tt;
-                    App.log("OPEN-THREAD: onNewIntent target " + fid);
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                // v3.2: se sono sulla stessa chat (e un tap
-                                // sulla notifica porta gia' quel thread), non
-                                // ricarico: niente reload completo che riapre
-                                // la tastiera. Chiudo la tastiera e resto
-                                // dove sono.
-                                String curTid = currentThreadId();
-                                if (fid.equals(curTid)) {
-                                    App.log("OPEN-THREAD: gia' sulla stessa chat, niente reload");
-                                    mErrorActive = false;
-                                    errorPanel.setVisibility(View.GONE);
-                                    logPanel.setVisibility(View.GONE);
-                                    creditsPanel.setVisibility(View.GONE);
-                                    optionsPanel.setVisibility(View.GONE);
-                                    webView.setVisibility(View.VISIBLE);
-                                    updateBar();
-                                    hideKeyboard();
-                                    lockKeyboardSoon();
-                                    return;
-                                }
-                                String target = currentUrl + "/chat?thread="
-                                        + java.net.URLEncoder.encode(fid, "UTF-8");
-                                mErrorActive = false;
-                                errorPanel.setVisibility(View.GONE);
-                                logPanel.setVisibility(View.GONE);
-                                creditsPanel.setVisibility(View.GONE);
-                                optionsPanel.setVisibility(View.GONE);
-                                webView.setVisibility(View.VISIBLE);
-                                updateBar();
-                                hideKeyboard(); // v3.1: tastiera chiusa al rientro
-                                lockKeyboardSoon(); // v3.3: chiusa anche dopo la navigazione
-                                webView.loadUrl(target);
-                            } catch (Exception e) {
-                                App.log("OPEN-THREAD: errore nav " + e.getMessage());
-                            }
-                        }
-                    });
+                    App.log("OPEN-THREAD: onNewIntent target " + fid + " (reentry=" + mReentryViaNotification + ")");
+                    runOnUiThread(() -> openThreadAtLastMessage(fid));
                 }
             }
         } catch (Exception e) {
@@ -2377,7 +2817,7 @@ public class MainActivity extends AppCompatActivity {
     // finita mentre eravamo via (runs vuoto), ricarico la chat cosi telefono e
     // PC mostrano gli stessi messaggi; se e' ancora attiva, Studio si
     // riconnette da solo allo stream e salto.
-    private void checkGenStatusAndResync() {
+    private void checkGenStatusAndResync(boolean entryViaNotification) {
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -2427,7 +2867,8 @@ public class MainActivity extends AppCompatActivity {
                                 // notifica "risposta pronta" e ri-sincronizzo.
                                 App.log("SYNC: generazione finita senza notifica, postResponseReady");
                                 GenService.postResponseReady(MainActivity.this, tid, title);
-                                genFinitaResync();
+                                showResponseReadyBanner(tid, title);
+                                if (!entryViaNotification) genFinitaResync();
                             }
                         }
                     });
@@ -2507,6 +2948,36 @@ public class MainActivity extends AppCompatActivity {
     private void stopRunPolling() {
         mPollRunning = false;
         if (mRunPollThread != null) mRunPollThread.interrupt();
+    }
+
+    // 3.5: poll veloce (ogni 700 ms) che gira la JS di rilevamento approvazione.
+    // Non aspetta il ciclo di 3 s del polling run (con le sue doppie HTTP 15 s/20 s).
+    private void startApprovalPolling() {
+        if (mApprovalPollRunning) return;
+        mApprovalPollRunning = true;
+        mApprovalPollThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (mApprovalPollRunning) {
+                    try {
+                        checkApprovalPending();
+                    } catch (Exception e) {
+                        App.log("APPROVAL: poll errore " + e.getMessage());
+                    }
+                    try {
+                        Thread.sleep(APPROVAL_POLL_MS);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+            }
+        }, "approval-poll");
+        mApprovalPollThread.start();
+    }
+
+    private void stopApprovalPolling() {
+        mApprovalPollRunning = false;
+        if (mApprovalPollThread != null) mApprovalPollThread.interrupt();
     }
 
     // Il run nell'array e' "mio" se contiene l'id catturato dal polling
@@ -2676,11 +3147,31 @@ public class MainActivity extends AppCompatActivity {
                 // Nessun run attivo. Se l'id del "run mio" era salvato, il run
                 // e' appena finito: lo azzero (conta solo mentre e' ancora
                 // attivo, per riconoscerlo come mio nel poll /active).
+                final String myTid = mMyRunThreadId;
                 final boolean wasMyRun = mMyRunId != null && !mMyRunId.isEmpty();
                 if (wasMyRun) {
                     mMyRunId = null;
+                    mMyRunThreadId = null;
                     getSharedPreferences(PREFS, MODE_PRIVATE)
-                            .edit().remove("my_run_id").apply();
+                            .edit().remove("my_run_id").remove("my_run_thread").apply();
+                }
+
+                // v3.4: risposta pronta in primo piano -> banner in-app.
+                // Solo a transizione (run appena finito), non al polling
+                // in stato stazionario. Per un run in un altro thread
+                // sbattuto da qui dentro (mSawActiveThread) il banner guarda
+                // quel thread.
+                final boolean justFinished = wasMyRun || mRunActive;
+                if (justFinished) {
+                    final String bannerTid = (wasMyRun && myTid != null
+                            && !myTid.isEmpty())
+                            ? myTid
+                            : (mRunActive && !tid.equals(mSawActiveThread))
+                                    ? mSawActiveThread : tid;
+                    final String bannerTitle = (bannerTid == null || bannerTid.isEmpty())
+                            ? "" : fetchThreadTitle(base, tok, bannerTid);
+                    App.log("RUN-POLL: risposta pronta (thread " + bannerTid + ")");
+                    runOnUiThread(() -> showResponseReadyBanner(bannerTid, bannerTitle));
                 }
                 if (mRunActive && !tid.equals(mSawActiveThread)) {
                     // Cambio di thread con un run attivo in un altro: azzero
@@ -3581,6 +4072,14 @@ public class MainActivity extends AppCompatActivity {
                     mPageUrl = u;
                     App.log("REPORT-URL: sync su thread UI");
                     syncTokensFromPage();
+                    // Banner in-app: se la SPA mi porta nella chat del thread,
+                    // il banner sparisce.
+                    if (!mResponseBannerThreadId.isEmpty() && mResponseBannerThreadId.equals(currentThreadId())) {
+                        dismissResponseReadyBanner();
+                    }
+                    if (!mApprovalBannerThreadId.isEmpty() && mApprovalBannerThreadId.equals(currentThreadId())) {
+                        dismissApprovalBanner();
+                    }
                     if (!mLiveOpened && u.contains("chat") && !u.contains("/login")) {
                         healAndOpenLive();
                     }
@@ -4168,6 +4667,7 @@ public class MainActivity extends AppCompatActivity {
         sActivityAlive = false;
         writeCrashGuardMarker("closed");
         stopRunPolling();
+        stopApprovalPolling();
         stopMirror();
         if (mDownloadReceiver != null) {
             unregisterReceiver(mDownloadReceiver);

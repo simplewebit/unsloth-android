@@ -36,15 +36,19 @@
     <string name="credits_desc">About this app</string>
 
     <!-- Credits panel -->
-    <string name="not_official">Not an official Unsloth app.\nBased on Unsloth Studio.</string>
+    <string name="not_official">Not an official Unsloth app.</string>
     <string name="developer_name">Mattia Di Giuseppe</string>
     <string name="developer_contact">www.simpleweb.it - mattia.digiuseppe@simpleweb.it</string>
     <string name="website">https://www.simpleweb.it</string>
+    <string name="github_repo">GitHub repo</string>
 
     <!-- Options panel -->
     <string name="options_title">Options</string>
     <string name="section_connection">Connection</string>
     <string name="section_screen">Screen</string>
+    <string name="section_notifications">Notifications</string>
+    <string name="wake_screen">Wake screen</string>
+    <string name="wake_screen_desc">Lights the screen when a reply is ready</string>
     <string name="section_language">Language</string>
     <string name="screen_always_on">Always keep screen on</string>
     <string name="screen_always_on_desc">Keeps the screen on while the app is in the foreground</string>
@@ -60,7 +64,7 @@
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Close</string>
     <!-- Novità della versione corrente: aggiornare a ogni nuova versione. -->
-    <string name="changelog_current">v3.3.1\n- Screen-on no longer reloads the chat page: re-entering a chat with the screen on only refreshes the access token, and the page stays where it was (no clearCache, no IndexedDB wipe, no reload).\n- Anti-resync cooldown: a reload at most once every 30 seconds, so screen-on, generation-finished and re-entry cannot trigger back-to-back reloads.\n- Version: 3.3.1 / versionCode 19 everywhere (manifest, APP_VERSION, Credits page).</string>
+    <string name="changelog_current">v3.5\n- Notification tap now opens the right chat directly (no waiting on the server thread list); banner in-app and notification from Android cancel each other.\n- In-app "reply ready" banner made lighter: smaller, tighter and more immediate.\n- Heads-up channel gen_done_v2: heads-up banner + sound above other apps for the reply-ready notification.\n- Version: 3.5 / versionCode 20 everywhere (manifest, APP_VERSION, Credits page).</string>
 
     <!-- Log panel -->
     <string name="download_log">Download log</string>
@@ -114,6 +118,14 @@
     <string name="channel_gen_desc">Keeps the generation active in the background</string>
     <string name="channel_done">Reply ready</string>
     <string name="channel_done_desc">Notification when a generation is finished</string>
+    <string name="banner_ready_sub_default">Generation finished</string>
+    <string name="channel_approval">Confirmation needed</string>
+    <string name="channel_approval_desc">Notification when the chat asks for a confirmation</string>
+    <string name="notif_approval_title">Unsloth: confirmation needed</string>
+    <string name="notif_approval_suffix"> - a confirmation is needed</string>
+    <string name="notif_approval_text_default">Tap to open the chat and confirm</string>
+    <string name="banner_approval_title">Confirmation needed</string>
+    <string name="banner_approval_sub_default">The chat asks for your confirmation</string>
     <string name="keepalive_text">Session renewal in progress</string>
     <string name="channel_crashguard">Crash recovery</string>
     <string name="crashguard_title">Unsloth is reopening</string>

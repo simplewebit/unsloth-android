@@ -59,13 +59,21 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"/>
 
+        <!-- 3.5: wrapper verticale dei banner in-app (update, risposta pronta, conferma).
+             Ancorato all'alto, così i banner si impilano senza coprirsi. -->
+        <LinearLayout
+            android:id="@+id/banner_stack"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:orientation="vertical">
+
         <!-- v2: banner nuova versione. Visibile solo se su GitHub c'è una release
              più recente dell'APK installato; tap -> download diretto + installazione. -->
         <LinearLayout
             android:id="@+id/update_banner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="top"
             android:background="@color/brand_surface"
             android:gravity="center_vertical"
             android:orientation="horizontal"
@@ -93,6 +101,137 @@
                 android:text="@string/update_download"
                 android:textColor="@color/banner_btn_text"
                 android:textStyle="bold"/>
+        </LinearLayout>
+
+        <!-- v3.5: banner in-app "risposta pronta". Tap -> apre la chat alla
+             risposta, all'ultimo messaggio. Tap X -> nasconde solo il banner. -->
+        <LinearLayout
+            android:id="@+id/response_ready_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_banner_thin"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:paddingStart="12dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_bell"
+                android:contentDescription="@string/channel_done"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="4dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/channel_done"
+                    android:textColor="@color/text_on_brand"
+                    android:textSize="11sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/response_ready_sub"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:textColor="@color/banner_sub"
+                    android:textSize="9.5sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/response_ready_close"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:text="&#215;"
+                android:textColor="@color/text_on_brand"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:clickable="true"/>
+        </LinearLayout>
+
+        <!-- 3.5: banner in-app "conferma utente" richiesta dalla chat. Tap -> apre
+             la chat all'ultimo messaggio; X -> nasconde solo il banner. -->
+        <LinearLayout
+            android:id="@+id/approval_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_banner_thin"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:paddingStart="12dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_bell"
+                android:contentDescription="@string/channel_approval"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="4dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/banner_approval_title"
+                    android:textColor="@color/text_on_brand"
+                    android:textSize="11sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/approval_sub"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:textColor="@color/banner_sub"
+                    android:textSize="9.5sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/approval_close"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:text="&#215;"
+                android:textColor="@color/text_on_brand"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:clickable="true"/>
+        </LinearLayout>
         </LinearLayout>
 
 
@@ -214,6 +353,49 @@
 
                     <Switch
                         android:id="@+id/switch_screen_on"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="@string/section_notifications"
+                    android:textColor="@color/section_text"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/wake_screen"
+                            android:textSize="16sp"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/wake_screen_desc"
+                            android:textColor="@color/text_muted"
+                            android:textSize="12sp"/>
+                    </LinearLayout>
+
+                    <Switch
+                        android:id="@+id/switch_wake_screen"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"/>
                 </LinearLayout>
@@ -454,69 +636,106 @@
                     android:text="@string/developer_contact"
                     android:textSize="14sp"/>
 
+                <!-- v3.5: versione app (vX.Y) impostata da MainActivity -->
+                <TextView
+                    android:id="@+id/credit_version"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:textColor="@color/text_muted"
+                    android:textSize="12sp"/>
+
+                <!-- v3.4: una riga a capo dopo la mail, poi icona GitHub + "GitHub repo" -->
+                <TextView
+                    android:layout_width="1dp"
+                    android:layout_height="24dp"/>
+
+                <LinearLayout
+                    android:id="@+id/credit_github_link"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_github"
+                        android:contentDescription="@string/github_repo"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/github_repo"
+                        android:textColor="@color/credit_link"
+                        android:textSize="14sp"
+                        android:textStyle="bold"/>
+                </LinearLayout>
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="20dp"
                     android:gravity="center"
                     android:paddingStart="24dp"
                     android:paddingEnd="24dp"
                     android:text="@string/not_official"
-                    android:textSize="14sp"/>
-
-                <ImageView
-                    android:layout_width="96dp"
-                    android:layout_height="96dp"
-                    android:layout_marginTop="24dp"
-                    android:src="@drawable/unsloth_logo"
-                    android:contentDescription="@string/not_official"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="3.3.1"
-                    android:textColor="@color/text_muted"
-                    android:textSize="12sp"
+                    android:textSize="14sp"
                     android:textStyle="italic"/>
 
-                <!-- v3.0.1: bottone Changelog -> CHANGELOG.md su GitHub
-                     (stesso stile di btn_check_updates) -->
-                <Button
+                <!-- v3.5: bottone Changelog -> CHANGELOG.md su GitHub
+                     (stile outlined, secondario rispetto a "Controlla aggiornamenti";
+                      TextView cliccabile — pattern del credit_github_link,
+                      niente conflitto con la style Material3 del Button) -->
+                <TextView
                     android:id="@+id/credit_changelog"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:background="@drawable/bg_gen_box"
+                    android:layout_marginTop="20dp"
+                    android:background="@drawable/bg_btn_outline"
                     android:paddingStart="28dp"
                     android:paddingEnd="28dp"
-                    android:text="@string/changelog_title"
-                    android:textColor="@color/text_on_brand"
-                    android:textStyle="bold"/>
-
-                <!-- v2: check manuale aggiornamenti (pagina Credits) -->
-                <TextView
-                    android:id="@+id/update_status"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="12dp"
                     android:gravity="center"
-                    android:paddingStart="24dp"
-                    android:paddingEnd="24dp"
-                    android:textColor="@color/text_muted"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    android:text="@string/changelog_title"
+                    android:textColor="@color/credit_link"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
+                <!-- v2: check manuale aggiornamenti (pagina Credits) -->
                 <Button
                     android:id="@+id/btn_check_updates"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="12dp"
                     android:background="@drawable/bg_gen_box"
                     android:paddingStart="28dp"
                     android:paddingEnd="28dp"
                     android:text="@string/check_updates"
                     android:textColor="@color/text_on_brand"
+                    android:textStyle="bold"/>
+
+                <!-- v3.5: stato della verifica aggiornamenti (sta sotto al bottone) -->
+                <TextView
+                    android:id="@+id/update_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:textColor="@color/text_muted"
+                    android:textSize="14sp"
                     android:textStyle="bold"/>
             </LinearLayout>
         </ScrollView>

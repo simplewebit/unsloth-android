@@ -29,6 +29,14 @@
     <color name="primary_on">#FFFFFF</color>
     <color name="primary_container">#14B789</color>
     <color name="primary_container_on">#003826</color>
+    <!-- Banner "risposta pronta": barra sottile flat (v3.5) -->
+    <color name="banner_bg">#0F3B2C</color>
+    <color name="banner_hairline">#00000000</color>
+    <color name="banner_sub">#C8DAD0</color>
+    <color name="banner_bell">#FCFCFC</color>
+    <!-- Cornici dei bottoni outlined (v3.5) -->
+    <color name="outline_border">#00A371</color>
+
     <!-- Link cliccabili pagina Credits (v3.0.1: in dark diventano bianchi) -->
     <color name="credit_link">#007A57</color>
 </resources>

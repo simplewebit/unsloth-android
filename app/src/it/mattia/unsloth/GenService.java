@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -27,12 +28,18 @@ public class GenService extends Service {
 
     // Channel della notifica ongoing "generazione in corso".
     private static final String CHAN = "gen_keepalive";
-    // Channel della notifica "risposta pronta": id nuovo, creato DEFAULT.
-    // Non si riusa gen_keepalive: su Android 14 NMS non aggiorna l'importance
-    // di un channel gia' presente (cancellazione + ricreazione ripristina lo
-    // stato precedente, mOriginalImp), quindi il channel vecchio resta LOW e
-    // la notifica finale andrebbe in silenzio.
-    private static final String CHAN_DONE = "gen_done";
+    // Channel della notifica "risposta pronta": id nuovo a IMPORTANCE_HIGH.
+    // L'importance della channel gen_done gia' creata non si alza (si cambia
+    // solo verso il basso, e la cancellazione+ricreazione ripristina lo stato
+    // precedente mOriginalImp), quindi id nuovo = channel fresco con la nuova
+    // importance. Alta: banner heads-up + suono sopra le altre app.
+    private static final String CHAN_DONE = "gen_done_v2";
+    // Channel legacy (DEFAULT, pre-v3.4): si cancella a ogni ensure cosi'
+    // nei settings resta un solo channel da mostrare.
+    private static final String CHAN_DONE_LEGACY = "gen_done";
+    // 3.5: Channel della notifica "conferma utente" richiesta dalla
+    // chat (tool call in attesa di approvazione): IMPORTANCE_HIGH.
+    private static final String CHAN_APPROVAL = "gen_approval_v1";
     private static final long MAX_MS = 2 * 60 * 60 * 1000L;
     private static final long POLL_MS = 5000;
 
@@ -408,6 +415,10 @@ public class GenService extends Service {
             if (nm == null) return;
             Intent open = new Intent(ctx, MainActivity.class);
             open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            // 3.5: distinzione notifica (risposta pronta): il tap NON ricarica la
+            // pagina. Le altre notifiche (conferma, ongoing, restart) non hanno
+            // questo extra: il tap ricarica la pagina.
+            open.putExtra("notifType", "done");
             if (threadId != null && !threadId.isEmpty()) open.putExtra("threadId", threadId);
             PendingIntent pi = PendingIntent.getActivity(ctx, 0, open,
                     Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
@@ -440,9 +451,99 @@ public class GenService extends Service {
                     .setContentText(txt)
                     .setContentIntent(pi)
                     .setAutoCancel(true);
-            nm.notify(2, b.build());
+            // Se l'app e' in primo piano, la "risposta pronta" la mostra solo
+            // il banner in-app (MainActivity): non si pubblica la heads-up
+            // Android (toglierebbe il duplo, e all'interno l'unico segnale
+            // visibile sarebbe comunque il banner).
+            boolean foreground = ctx.getSharedPreferences("unsloth", Context.MODE_PRIVATE)
+                    .getBoolean("app_foreground", false);
+            if (!foreground) {
+                nm.notify(2, b.build());
+            }
+            // v3.5: "accendi schermo" sull'evento risposta-pronta (opzione
+            // "wake_screen", default on). Se lo schermo e' spento, si accende
+            // per pochi secondi. Se e' gia' acceso resta acceso come di
+            // solito (nessun lock e' fatto).
+            wakeScreen(ctx);
         } catch (Exception e) {
             App.log("GEN: notifica errore " + e.getMessage());
+        }
+    }
+
+    // v3.5: "accendi schermo" se l'opzione "wake_screen" e' attiva (default
+    // on). Se lo schermo e' spento, si accende per pochi secondi. Se e' gia'
+    // acceso resta acceso (nessun lock e' fatto). Agganciata da
+    // postResponseReady e postApprovalPending.
+    private static void wakeScreen(Context ctx) {
+        try {
+            boolean wake = ctx.getSharedPreferences("unsloth", Context.MODE_PRIVATE)
+                    .getBoolean("wake_screen", true);
+            if (!wake) return;
+            PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return;
+            boolean interactive = Build.VERSION.SDK_INT >= 20
+                    ? pm.isInteractive()
+                    : pm.isScreenOn();
+            if (interactive) return;
+            PowerManager.WakeLock wl = pm.newWakeLock(
+                    PowerManager.FULL_WAKE_LOCK
+                            | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                            | PowerManager.ON_AFTER_RELEASE,
+                    "Unsloth::ScreenWake");
+            wl.acquire(2500L);
+            wl.release();
+        } catch (Exception ignored) {
+        }
+    }
+
+    // 3.5: notifica "conferma utente" richiesta dalla chat. E' static perche'
+    // la manda anche MainActivity quando rileva la richiesta di permesso di
+    // un tool call nel DOM della pagina (i bottoni Allow/Always allow/Deny/
+    // Full Access). Il tap apre la chat del thread; se assenti threadId e title
+    // si apre l'app normale. Comportamento di foreground come la risposta
+    // pronta: in primo piano la notifica e' il banner in-app (MainActivity),
+    // l'heads-up Android resta solo in background.
+    public static void postApprovalPending(Context ctx, String threadId, String title) {
+        try {
+            ensureChannels(ctx);
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            Intent open = new Intent(ctx, MainActivity.class);
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            // 3.5: notifica "conferma utente": il tap ricarica la pagina.
+            open.putExtra("notifType", "approval");
+            if (threadId != null && !threadId.isEmpty()) open.putExtra("threadId", threadId);
+            PendingIntent pi = PendingIntent.getActivity(ctx, 1, open,
+                    Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
+            Notification.Builder b;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                b = new Notification.Builder(ctx, CHAN_APPROVAL);
+            } else {
+                b = new Notification.Builder(ctx, "Unsloth");
+            }
+            String nt = ctx.getString(R.string.notif_approval_title);
+            String txt = (title == null || title.isEmpty())
+                    ? ctx.getString(R.string.notif_approval_text_default)
+                    : "\u00AB" + title + "\u00BB" + ctx.getString(R.string.notif_approval_suffix);
+            b.setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(nt)
+                    .setContentText(txt)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true);
+            // Come la risposta pronta: in primo piano il segnale e' il banner
+            // in-app, non l'heads-up Android.
+            boolean foreground = ctx.getSharedPreferences("unsloth", Context.MODE_PRIVATE)
+                    .getBoolean("app_foreground", false);
+            if (!foreground) {
+                // id 3: nuovo canale/id per la conferma, da non collidere
+                // con la risposta pronta (2) e l'ongoing (1).
+                nm.notify(3, b.build());
+            }
+            // 3.5: accendi schermo anche sull'evento conferma (opzione
+            // "wake_screen", default on).
+            wakeScreen(ctx);
+        } catch (Exception e) {
+            App.log("GEN: notifica conferma errore " + e.getMessage());
         }
     }
 
@@ -450,10 +551,11 @@ public class GenService extends Service {
         ensureChannels(this);
     }
 
-    // Crea i channel notifiche. gen_done (id nuovo) nasce DEFAULT: la
-    // notifica "risposta pronta" cosi ha banner e suono. gen_keepalive resta
-    // quello esistente: serve solo alla notifica ongoing "generazione in
-    // corso", che e' sempre visibile nella barra di stato.
+    // Crea i channel notifiche. gen_keepalive resta DEFAULT: serve solo alla
+    // notifica ongoing "generazione in corso", cosi' e' sempre visibile nella
+    // barra di stato. gen_done_v2 nasce IMPORTANCE_HIGH: la "risposta pronta"
+    // cosi' fa heads-up banner + suono sopra le altre app. Il channel legacy
+    // gen_done si cancella (la importance di una channel esistente non si alza).
     public static void ensureChannels(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         try {
@@ -462,9 +564,15 @@ public class GenService extends Service {
             NotificationChannel ch = new NotificationChannel(CHAN, ctx.getString(R.string.channel_gen), NotificationManager.IMPORTANCE_DEFAULT);
             ch.setDescription(ctx.getString(R.string.channel_gen_desc));
             nm.createNotificationChannel(ch);
-            NotificationChannel ch2 = new NotificationChannel(CHAN_DONE, ctx.getString(R.string.channel_done), NotificationManager.IMPORTANCE_DEFAULT);
+            NotificationChannel ch2 = new NotificationChannel(CHAN_DONE, ctx.getString(R.string.channel_done), NotificationManager.IMPORTANCE_HIGH);
             ch2.setDescription(ctx.getString(R.string.channel_done_desc));
             nm.createNotificationChannel(ch2);
+            // 3.5: channel "conferma utente" richiesta dalla chat (HIGH,
+            // heads-up come il channel di risposta-pronta).
+            NotificationChannel ch3 = new NotificationChannel(CHAN_APPROVAL, ctx.getString(R.string.channel_approval), NotificationManager.IMPORTANCE_HIGH);
+            ch3.setDescription(ctx.getString(R.string.channel_approval_desc));
+            nm.createNotificationChannel(ch3);
+            try { nm.deleteNotificationChannel(CHAN_DONE_LEGACY); } catch (Exception ignored) {}
         } catch (Exception e) {
             App.log("GEN: createChannel errore " + e.getMessage());
         }
@@ -517,6 +625,8 @@ public class GenService extends Service {
     private PendingIntent openChatIntent() {
         Intent open = new Intent(this, MainActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        // 3.5: notifica "generazione in corso": il tap ricarica la pagina.
+        open.putExtra("notifType", "ongoing");
         if (mThreadId != null && !mThreadId.isEmpty()) open.putExtra("threadId", mThreadId);
         return PendingIntent.getActivity(this, 0, open,
                 Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);

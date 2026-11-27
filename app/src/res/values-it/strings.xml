@@ -37,20 +37,24 @@
     <string name="credits_desc">Informazioni sull\'app</string>
 
     <!-- Credits panel -->
-    <string name="not_official">Non è un\'app ufficiale di Unsloth.\nSi basa su Unsloth Studio.</string>
+    <string name="not_official">Non è una app ufficiale di Unsloth.</string>
     <string name="developer_name">Mattia Di Giuseppe</string>
     <string name="developer_contact">www.simpleweb.it - mattia.digiuseppe@simpleweb.it</string>
     <string name="website">https://www.simpleweb.it</string>
+    <string name="github_repo">Repo GitHub</string>
 
     <!-- Changelog (v3.2) -->
     <string name="changelog_title">Changelog</string>
     <string name="close_changelog">Chiudi</string>
-    <string name="changelog_current">v3.3.1\n- Schermo acceso: niente più reload della pagina al rientro in una chat — solo refresh del token, la pagina resta dove era (niente clearCache, niente svuotamento IndexedDB, niente reload).\n- Cooldown anti-resync: un reload al massimo una volta ogni 30 secondi, cosi schermo acceso, generazione finita e rientro non fanno reload a raffica.\n- Versione: 3.3.1 / versionCode 19 ovunque (manifest, APP_VERSION, pagina Credits).</string>
+    <string name="changelog_current">v3.5\n- Tap notifica: apre la chat giusta subito (senza aspettare la lista thread dal server); banner in-app e notifica Android si cancellano a vicenda.\n- Banner in-app "risposta pronta": più piccolo e compatto, più immediato.\n- Canale heads-up gen_done_v2: heads-up banner + suono sopra le altre app per la notifica "risposta pronta".\n- Versione: 3.5 / versionCode 20 ovunque (manifest, APP_VERSION, pagina Credits).</string>
 
     <!-- Options panel -->
     <string name="options_title">Opzioni</string>
     <string name="section_connection">Collegamento</string>
     <string name="section_screen">Schermo</string>
+    <string name="section_notifications">Notifiche</string>
+    <string name="wake_screen">Accendi schermo</string>
+    <string name="wake_screen_desc">Accende lo schermo quando la risposta è pronta</string>
     <string name="section_language">Lingua</string>
     <string name="screen_always_on">Schermo sempre acceso</string>
     <string name="screen_always_on_desc">Mantiene lo schermo acceso mentre l\'app è in primo piano</string>
@@ -114,6 +118,14 @@
     <string name="channel_gen_desc">Mantiene la generazione attiva in background</string>
     <string name="channel_done">Risposta pronta</string>
     <string name="channel_done_desc">Notifica quando una generazione è finita</string>
+    <string name="banner_ready_sub_default">La generazione è finita</string>
+    <string name="channel_approval">Conferma richiesta</string>
+    <string name="channel_approval_desc">Notifica quando la chat chiede una conferma</string>
+    <string name="notif_approval_title">Unsloth: conferma richiesta</string>
+    <string name="notif_approval_suffix"> - richiesta di conferma</string>
+    <string name="notif_approval_text_default">Tocca per aprire la chat e confermare</string>
+    <string name="banner_approval_title">Conferma richiesta</string>
+    <string name="banner_approval_sub_default">La chat chiede la tua conferma</string>
     <string name="keepalive_text">Rinnovo della sessione in corso</string>
     <string name="channel_crashguard">Ripristino dopo crash</string>
     <string name="crashguard_title">Unsloth si sta riaprendo</string>

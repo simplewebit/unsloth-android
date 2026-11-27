@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v3.5 (approvato da Mattia): barra sottile a riga singola, flat,
+     niente radius, niente gradiente, niente ombra. In dark: una hairline
+     1dp verde in basso. Il drawable e' condiviso solo dal banner in-app. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/banner_bg"/>
+        </shape>
+    </item>
+    <item android:bottom="0dp">
+        <shape android:shape="rectangle">
+            <size android:height="1dp"/>
+            <solid android:color="@color/banner_hairline"/>
+        </shape>
+    </item>
+</layer-list>

@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.5
+
+- Notification tap opens the right chat directly: the app no longer waits for the server thread list before navigating (cold start now navigates immediately on page load; warm start already did), instead of staying frozen on the home page until the check completes.
+- In-app "reply ready" banner: tap on any notification (Android or in-app) closes the other channel - the heads-up notification is dismissed when the in-app banner shows, and when the app is opened from a notification the banner disappears.
+- In-app "reply ready" banner: made lighter and smaller (padding 6dp, 16dp icon, 12sp bold title, 10sp sub, 32dp close, tight 8dp margin) - lighter and more immediate.
+- In-app "reply ready" banner: restyled to the thin single-row flat variant (flat background, no radius/shadow/gradient, hairline accent in dark theme, inline title+sub).
+- In-app "reply ready" banner: shown only while the app is in the foreground (the Android heads-up is the only signal in the background) - no duplicate signal in-app; thread-of-the-run race fix: the banner now gets the run's thread from the value captured before the run id is cleared.
+- New option "Wake screen" (Settings): light the screen for ~2.5 s when a reply is ready (default on); no-op when the screen is already on.
+- Heads-up channel gen_done_v2: heads-up banner + sound above other apps for the reply-ready notification (already shipped in v3.4, kept in this release).
+- New "confirmation needed" signal for chat tool calls: when the chat shows a tool-call approval (Allow / Always allow / Deny / Full Access buttons), the app shows an Android notification in the background, an in-app banner in the foreground, and wakes the screen if the "Wake screen" option is on. Not shown when the app is already in the chat showing the pending confirmation (fully silenced).
+- Notification channel `gen_approval_v1` (IMPORTANCE_HIGH), notification id 3 (no collision with the reply-ready id 2 and the ongoing id 1).
+- Tap (banner or notification) opens the chat at the last message; dismiss button hides only the banner.
+- No reload on chat re-entry from the "reply ready" notification tap: the app stays in the chat (no cache wipe / IndexedDB wipe / location.reload). The "confirmation needed" and other notifications keep their previous behavior (the tap re-enters the chat and reloads the page).
+- Dedup per message id (`tid:messageId`, reset when the confirmation is no longer in the DOM).
+- Near-real-time detection: dedicated ~700 ms approval-poll thread (JS check only) replaces the 3 s run-poll hook; the notification/banner fires immediately with default text, then the real chat title is fetched in the background and updates the banner/notification (same id 3).
+- Wake screen also fires on the confirmation event (same option, same wakeScreen helper).
+- Credits page: buttons moved closer together (Changelog + Check for updates), the update status message now appears below the update button, the Changelog button uses a lighter outlined style, the Unsloth logo and the "3.3.1" caption are removed, and the "Based on Unsloth Studio" sentence is gone from the "not official" line (italic, single sentence).
+- Version: 3.5 / versionCode 20 everywhere (manifest, APP_VERSION, Credits page).
+
 ## 3.3.1
 
 - Screen-on no longer reloads the chat page: re-entering a chat with the screen on only refreshes the access token, and the page stays where it was (no clearCache, no IndexedDB wipe, no reload).
